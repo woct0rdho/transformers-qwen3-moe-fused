@@ -13,7 +13,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeMLP,
     Qwen3MoeModel,
 )
-
+from transformers.utils.generic import OutputRecorder
 from .functional import moe_fused_linear
 from .kernels.indexing import get_expert_counts_and_idx
 
@@ -141,3 +141,5 @@ class Qwen3MoeFusedForCausalLM(Qwen3MoeForCausalLM):
     def __init__(self, config: Qwen3MoeConfig) -> None:
         super().__init__(config)
         self.model = Qwen3MoeFusedModel(config)
+        self._can_record_outputs["router_logits"] = OutputRecorder(Qwen3MoeFusedSparseMoeBlock, index=1)
+        self._can_record_outputs["hidden_states"] = Qwen3MoeFusedDecoderLayer
