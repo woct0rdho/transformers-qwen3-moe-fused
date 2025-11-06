@@ -24,9 +24,8 @@ The functions in [`qwen3_moe_fused/convert.py`](https://github.com/woct0rdho/tra
 
 ### TODO
 
-* Convert GGUF Q4 with Unsloth Dynamic (UD) quantization (such as https://huggingface.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF ) to the fused bnb format, and see if it has higher intelligence than the regular bnb 4-bit.
 * This should work with Qwen3-Next with minimal modification. I haven't started trying this, but feel free to ask if you need it.
-* Multi-GPU support. I don't have multiple GPUs at home so I'm not focusing on this. It works with HF Accelerate, see https://github.com/woct0rdho/transformers-qwen3-moe-fused/issues/1#issuecomment-3243600437 . It should be straightforward to do data parallel and model/pipeline parallel. If you use Unsloth, you can follow https://docs.unsloth.ai/basics/multi-gpu-training-with-unsloth . Feel free to ask if you see any error.
+* Multi-GPU support. I don't have multiple GPUs at home so I'm not focusing on this. It's straightforward to do DDP using HF Accelerate, see https://github.com/woct0rdho/transformers-qwen3-moe-fused/issues/1#issuecomment-3243600437 . FSDP may also work, but expert parallel is out of the scope of this repo. If you use Unsloth, you can follow https://docs.unsloth.ai/basics/multi-gpu-training-with-unsloth . Feel free to ask if you see any error.
 * Fuse 4-bit dequant and MoE linear, see [`qwen3_moe_fused/quantize/layer.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/qwen3_moe_fused/quantize/layer.py). Currently I've written a kernel in [`qwen3_moe_fused/grouped_gemm/forward_4bit.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/qwen3_moe_fused/grouped_gemm/forward_4bit.py) but it's slower than the unfused version when the batch size is large.
 
 ### License
