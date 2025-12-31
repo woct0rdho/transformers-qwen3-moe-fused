@@ -79,6 +79,7 @@ def _silu_mul_backward_kernel(
 @triton.autotune(
     configs=_autotune_configs,
     key=[],
+    restore_value=["dh_ptr", "e_ptr", "g_ptr"],
 )
 @triton.jit
 def _silu_mul_backward_inplace_kernel(
