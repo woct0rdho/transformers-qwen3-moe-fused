@@ -1,6 +1,6 @@
 # Qwen3 MoE Fused
 
-**Update:** Transformers 5 will soon be released and it supports the fused MoE kernels. We will implement the LoRA in PEFT. This repo only supports Transformers < 4.57 .
+**Update:** Transformers 5 will soon be released and it supports the fused MoE kernels. We will implement the LoRA in PEFT. This repo only supports Transformers 4.
 
 The Qwen3 MoE model (and all other MoE models) in HF Transformers is notoriously slow, because it uses a [for loop](https://github.com/huggingface/transformers/blob/bdf5fb70aa11782cce22027d76879f71f4e41c1e/src/transformers/models/qwen3_moe/modular_qwen3_moe.py#L103) to access the experts. The purpose of this repo is to fine-tune Qwen3-30B-A3B on a single GPU with 24GB VRAM and achieve high throughput. The implementation is compatible with the HF Transformers ecosystem, such as LoRA, bitsandbytes 4-bit quantization, and Unsloth. See [`example_train_30b_a3b_unsloth.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/example_train_30b_a3b_unsloth.py) for the usage.
 

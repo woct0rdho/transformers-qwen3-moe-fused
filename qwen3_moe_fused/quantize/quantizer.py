@@ -8,6 +8,7 @@ from transformers import BitsAndBytesConfig
 from transformers.modeling_utils import PreTrainedModel
 from transformers.pytorch_utils import Conv1D
 from transformers.quantizers.quantizer_bnb_4bit import Bnb4BitHfQuantizer
+from transformers.quantizers.quantizers_utils import get_module_from_name
 from transformers.utils import logging
 
 from ..modular_qwen3_moe_fused import MoeFusedLinear
@@ -15,6 +16,16 @@ from .layer import MoeFusedLinear4bit
 
 
 logger = logging.get_logger(__name__)
+
+
+def _param_needs_quantization(self: Bnb4BitHfQuantizer, model: PreTrainedModel, param_name: str, **kwargs) -> bool:
+    import bitsandbytes as bnb
+
+    # They are on the params themselves, so we cannot easily extract the module from the name
+    if any(param_name.endswith(x) for x in self.bnb_keys):
+        return True
+    module, name = get_module_from_name(model, param_name)
+    return isinstance(module, (bnb.nn.Linear4bit, MoeFusedLinear4bit)) and name != "bias"
 
 
 # Modified from https://github.com/huggingface/transformers/blob/508a7040556dc6b45f09174c662a9632284b2445/src/transformers/integrations/bitsandbytes.py#L150
@@ -130,4 +141,5 @@ def _process_model_before_weight_loading(
 
 
 def patch_bnb_quantizer() -> None:
+    Bnb4BitHfQuantizer.param_needs_quantization = _param_needs_quantization
     Bnb4BitHfQuantizer._process_model_before_weight_loading = _process_model_before_weight_loading
