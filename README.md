@@ -14,7 +14,7 @@ There are already several good implementations, such as [triton-kernels](https:/
 
 The implementation in this repo is largely based on the [Triton grouped GEMM](https://triton-lang.org/main/getting-started/tutorials/08-grouped-gemm.html). I've added strides, masks, and autotune configs for small or 'thin' matrices, which are needed for LoRA.
 
-I aim to keep the code readable and easy to follow. I only used the most mature features of Triton, such as load and store, rather than things like TMA and swizzle. I've benchmarked it on RTX 3090 and it's close to the theoretical fp16 and bf16 performance.
+I aim to keep the code readable and easy to follow. I only used the most mature features of Triton, such as load and store, rather than things like TMA and swizzle. Currently it's mainly optimized for RTX 3090, RTX 4090, and Strix Halo. Help wanted to optimize it for RTX 5090.
 
 ### LoRA
 
