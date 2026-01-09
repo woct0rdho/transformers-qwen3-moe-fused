@@ -24,7 +24,7 @@ def _grouped_gemm_backward_dw_kernel(
     # Pointers
     x_ptr,
     y_ptr,
-    m_sizes_ptr,
+    expert_offsets_ptr,
     w_ptr,
     # Dimensions
     K: int,  # Arg names of M and K are swapped for autotune pruning
@@ -53,43 +53,46 @@ def _grouped_gemm_backward_dw_kernel(
     num_n_tiles = tl.cdiv(N, BLOCK_SIZE_N)
     num_k_tiles = tl.cdiv(K, BLOCK_SIZE_K)
     num_tiles_per_expert = num_n_tiles * num_k_tiles
+    total_tiles = num_tiles_per_expert * NUM_EXPERTS
 
-    for tile_idx in range(tidx, num_tiles_per_expert, NUM_SMS):
+    for work_idx in range(tidx, total_tiles, NUM_SMS):
+        expert_idx = work_idx // num_tiles_per_expert
+        tile_idx = work_idx % num_tiles_per_expert
+
         # Output tile index
         tile_n_idx = tile_idx % num_n_tiles
         tile_k_idx = tile_idx // num_n_tiles
 
-        offs_n = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-        offs_k = tile_k_idx * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
-        mask_n = offs_n < N
-        mask_k = offs_k < K
+        m_start = tl.load(expert_offsets_ptr + expert_idx).to(tl.int32)
+        m_end = tl.load(expert_offsets_ptr + expert_idx + 1).to(tl.int32)
+        m_size = m_end - m_start
 
-        m_end = 0
-        for expert_idx in range(NUM_EXPERTS):
-            m_start = m_end
-            m_size = tl.load(m_sizes_ptr + expert_idx).to(tl.int32)
-            m_end = m_start + m_size
-            if m_size > 0:
-                offs_m = m_start + tl.arange(0, BLOCK_SIZE_M)
+        if m_size > 0:
+            offs_n = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+            offs_k = tile_k_idx * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+            mask_n = offs_n < N
+            mask_k = offs_k < K
 
-                x_ptrs = x_ptr + stride_xm * offs_m[:, None] + stride_xk * offs_k[None, :]
-                y_ptrs = y_ptr + stride_ym * offs_m[:, None] + stride_yn * offs_n[None, :]
+            offs_m = m_start + tl.arange(0, BLOCK_SIZE_M)
 
-                accumulator = tl.zeros((BLOCK_SIZE_N, BLOCK_SIZE_K), dtype=tl.float32)
-                for _ in range(tl.cdiv(m_size, BLOCK_SIZE_M)):
-                    mask_m = offs_m < m_end
-                    x = tl.load(x_ptrs, mask=mask_m[:, None] & mask_k[None, :])
-                    y = tl.load(y_ptrs, mask=mask_m[:, None] & mask_n[None, :])
+            x_ptrs = x_ptr + stride_xm * offs_m[:, None] + stride_xk * offs_k[None, :]
+            y_ptrs = y_ptr + stride_ym * offs_m[:, None] + stride_yn * offs_n[None, :]
 
-                    accumulator += tl.dot(y.T, x)
+            accumulator = tl.zeros((BLOCK_SIZE_N, BLOCK_SIZE_K), dtype=tl.float32)
+            for _ in range(tl.cdiv(m_size, BLOCK_SIZE_M)):
+                mask_m = offs_m < m_end
+                x = tl.load(x_ptrs, mask=mask_m[:, None] & mask_k[None, :])
+                y = tl.load(y_ptrs, mask=mask_m[:, None] & mask_n[None, :])
 
-                    offs_m += BLOCK_SIZE_M
-                    x_ptrs += stride_xm * BLOCK_SIZE_M
-                    y_ptrs += stride_ym * BLOCK_SIZE_M
-                w = accumulator.to(w_ptr.dtype.element_ty)
+                accumulator += tl.dot(y.T, x)
 
-                w_ptrs = w_ptr + stride_we * expert_idx + stride_wn * offs_n[:, None] + stride_wk * offs_k[None, :]
-                tl.store(w_ptrs, w, mask=mask_n[:, None] & mask_k[None, :])
+                offs_m += BLOCK_SIZE_M
+                x_ptrs += stride_xm * BLOCK_SIZE_M
+                y_ptrs += stride_ym * BLOCK_SIZE_M
+            w = accumulator.to(w_ptr.dtype.element_ty)
+
+            w_ptrs = w_ptr + stride_we * expert_idx + stride_wn * offs_n[:, None] + stride_wk * offs_k[None, :]
+            tl.store(w_ptrs, w, mask=mask_n[:, None] & mask_k[None, :])
 
 
 def grouped_gemm_backward_dw(
@@ -112,6 +115,9 @@ def grouped_gemm_backward_dw(
 
     w = torch.zeros((E, N, K), device=x.device, dtype=dtype)
 
+    expert_offsets = torch.zeros(E + 1, device=m_sizes.device, dtype=m_sizes.dtype)
+    expert_offsets[1:] = torch.cumsum(m_sizes, dim=0)
+
     NUM_SMS = get_num_sms()
     TOTAL_BLOCKS = NUM_SMS * GRID_FACTOR
 
@@ -121,7 +127,7 @@ def grouped_gemm_backward_dw(
             # Pointers
             x,
             y,
-            m_sizes,
+            expert_offsets,
             w,
             # Dimensions
             M,

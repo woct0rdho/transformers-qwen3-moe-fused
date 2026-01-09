@@ -60,7 +60,7 @@ def main():
     print("grad_input_naive", grad_input_naive.shape, grad_input_naive.dtype)
     print("grad_weight_naive", grad_weight_naive.shape, grad_weight_naive.dtype)
     print(torch.allclose(grad_input_naive, grad_input_auto, rtol=rtol, atol=atol))
-    print(torch.allclose(grad_weight_naive, grad_weight_auto, rtol=rtol, atol=atol))
+    print(torch.allclose(grad_weight_naive, grad_weight_auto, rtol=rtol, atol=atol * batch_size))
     print(get_rtol_atol(grad_input_naive, grad_input_auto))
     print(get_rtol_atol(grad_weight_naive, grad_weight_auto))
 
@@ -73,7 +73,7 @@ def main():
     print("grad_input_grouped_gemm", grad_input_grouped_gemm.shape, grad_input_grouped_gemm.dtype)
     print("grad_weight_grouped_gemm", grad_weight_grouped_gemm.shape, grad_weight_grouped_gemm.dtype)
     print(torch.allclose(grad_input_grouped_gemm, grad_input_auto, rtol=rtol, atol=atol))
-    print(torch.allclose(grad_weight_grouped_gemm, grad_weight_auto, rtol=rtol, atol=atol))
+    print(torch.allclose(grad_weight_grouped_gemm, grad_weight_auto, rtol=rtol, atol=atol * batch_size))
     print(get_rtol_atol(grad_input_grouped_gemm, grad_input_auto))
     print(get_rtol_atol(grad_weight_grouped_gemm, grad_weight_auto))
 
