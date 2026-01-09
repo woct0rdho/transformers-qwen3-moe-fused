@@ -26,9 +26,9 @@ def _grouped_gemm_backward_dw_kernel(
     m_sizes_ptr,
     w_ptr,
     # Dimensions
-    M: int,
+    K: int,  # Arg names of M and K are swapped for autotune pruning
     N: tl.constexpr,
-    K: tl.constexpr,
+    M: tl.constexpr,
     NUM_EXPERTS: tl.constexpr,
     NUM_SMS: tl.constexpr,
     # Strides
@@ -44,6 +44,8 @@ def _grouped_gemm_backward_dw_kernel(
     BLOCK_SIZE_N: tl.constexpr = 64,
     BLOCK_SIZE_K: tl.constexpr = 64,
 ) -> None:
+    M, K = K, M
+
     tidx = tl.program_id(0)
 
     # Output tiles per expert, since each expert weight matrix is [N, K]

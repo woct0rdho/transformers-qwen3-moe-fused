@@ -29,8 +29,8 @@ def _grouped_gemm_forward_transposed_kernel(
     y_ptr,
     # Dimensions
     M: int,
+    K: tl.constexpr,  # Arg names of N and K are swapped for autotune pruning
     N: tl.constexpr,
-    K: tl.constexpr,
     NUM_EXPERTS: tl.constexpr,
     NUM_SMS: tl.constexpr,
     # Strides
@@ -46,6 +46,8 @@ def _grouped_gemm_forward_transposed_kernel(
     BLOCK_SIZE_N: tl.constexpr = 64,
     BLOCK_SIZE_K: tl.constexpr = 64,
 ) -> None:
+    N, K = K, N
+
     tidx = tl.program_id(0)
     m_end = 0
     processed_tiles = 0
@@ -74,7 +76,7 @@ def _grouped_gemm_forward_transposed_kernel(
 
                 offs_m = m_start + tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
                 x_ptrs = x_ptr + stride_xm * offs_m[:, None] + stride_xk * offs_k[None, :]
-                mask_m = offs_m < m_start + m_size
+                mask_m = offs_m < m_end
 
                 offs_n = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
                 w_ptrs = w_ptr + stride_we * expert_idx + stride_wn * offs_n[:, None] + stride_wk * offs_k[None, :]
