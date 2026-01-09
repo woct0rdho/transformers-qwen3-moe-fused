@@ -62,7 +62,7 @@ def benchmark(N, provider):
         lambda: providers[provider](grad_output, weight, m_sizes), quantiles=quantiles
     )
 
-    perf = lambda ms: N * out_features * in_features / ms * 1e-6
+    perf = lambda ms: 2 * N * out_features * in_features / ms * 1e-6
     print("N", N, "provider", provider, "end", perf(ms))
     return perf(ms), perf(max_ms), perf(min_ms)
 
