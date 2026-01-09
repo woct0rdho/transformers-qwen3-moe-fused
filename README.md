@@ -10,11 +10,11 @@ The critical part is to implement the [`moe_fused_linear`](https://github.com/wo
 ```
 output[b, o] = sum_i weight[selected_experts[b], o, i] * input[b, i]
 ```
-There are already several good implementations, such as [triton-kernels](https://github.com/triton-lang/triton/blob/dd1c3d429d1c24904722ac699ea5750bc694c4d6/python/triton_kernels/triton_kernels/matmul_ogs.py), [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/a0535ffa0d35fccfec3e1a0a3bfc9dbb6054d7c0/ggml/src/ggml-cuda/ggml-cuda.cu#L2065), [vLLM](https://github.com/vllm-project/vllm/blob/015fab8c2fa4db8776f7e91abd50371911673d88/vllm/model_executor/layers/fused_moe/fused_moe.py), [fanshiqing/grouped_gemm](https://github.com/fanshiqing/grouped_gemm). `torch._grouped_mm` is also being implemented. We need to sort `input` by the experts to improve the memory coalescence of `weight`, and more optimizations are explained in https://pytorch.org/blog/accelerating-moes-with-a-triton-persistent-cache-aware-grouped-gemm-kernel/
+There are already several good implementations, such as [triton-kernels](https://github.com/triton-lang/triton/blob/dd1c3d429d1c24904722ac699ea5750bc694c4d6/python/triton_kernels/triton_kernels/matmul_ogs.py), [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/a0535ffa0d35fccfec3e1a0a3bfc9dbb6054d7c0/ggml/src/ggml-cuda/ggml-cuda.cu#L2065), [vLLM](https://github.com/vllm-project/vllm/blob/015fab8c2fa4db8776f7e91abd50371911673d88/vllm/model_executor/layers/fused_moe/fused_moe.py), [fanshiqing/grouped_gemm](https://github.com/fanshiqing/grouped_gemm), [yamoe](https://huggingface.co/drbh/yamoe). `torch._grouped_mm` is also being implemented. We need to sort `input` by the experts to improve the memory coalescence of `weight`, and more optimizations are explained in https://pytorch.org/blog/accelerating-moes-with-a-triton-persistent-cache-aware-grouped-gemm-kernel/
 
-The implementation in this repo is largely based on the MoE kernel in [Unsloth](https://github.com/unslothai/unsloth/blob/2bfc39b6387577457834059c59f83fcdb954c9bd/unsloth/kernels/moe), which is based on the Triton [grouped GEMM](https://triton-lang.org/main/getting-started/tutorials/08-grouped-gemm.html). I've added strides, masks, and autotune configs for small or 'thin' matrices, which are needed for LoRA.
+The implementation in this repo is largely based on the [Triton grouped GEMM](https://triton-lang.org/main/getting-started/tutorials/08-grouped-gemm.html). I've added strides, masks, and autotune configs for small or 'thin' matrices, which are needed for LoRA.
 
-I aim to keep the code readable and easy to follow. I only used the most mature features of Triton, such as load and store, rather than things like TMA and swizzle. I've benchmarked it on RTX 3080 and it's close to the theoretical fp16 and bf16 performance.
+I aim to keep the code readable and easy to follow. I only used the most mature features of Triton, such as load and store, rather than things like TMA and swizzle. I've benchmarked it on RTX 3090 and it's close to the theoretical fp16 and bf16 performance.
 
 ### LoRA
 
@@ -30,6 +30,6 @@ The functions in [`qwen3_moe_fused/convert.py`](https://github.com/woct0rdho/tra
 
 ### License
 
-The files in `qwen3_moe_fused/grouped_gemm/` are modified from the Unsloth MoE kernels so they are AGPLv3 licensed, see the [explanation](https://github.com/unslothai/unsloth/discussions/2890#discussioncomment-13675890). For more robust and performant integration, it's possible to use the MIT licensed [triton-kernels](https://github.com/triton-lang/triton/tree/main/python/triton_kernels/triton_kernels) as an alternative.
+Previously the files in `qwen3_moe_fused/grouped_gemm/` were based on the Unsloth MoE kernels so they were AGPLv3 licensed, see the [details](https://github.com/unslothai/unsloth/discussions/2890#discussioncomment-13675890). Now I believe all the code is rewritten and I can simply license the whole repo under Apache-2.0 .
 
 The rest of this repo, including files modified from Transformers, PEFT, and bitsandbytes, are Apache-2.0 licensed.
