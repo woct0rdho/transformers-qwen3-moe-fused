@@ -7,6 +7,7 @@ import triton
 import triton.language as tl
 
 from .autotuning import (
+    GRID_FACTOR,
     get_autotune_configs,
     get_autotune_keys,
     get_num_sms,
@@ -127,8 +128,11 @@ def grouped_gemm_forward_transposed(
     if dtype is None:
         dtype = x.dtype
     y = torch.empty((M, N), device=x.device, dtype=dtype)
+
     NUM_SMS = get_num_sms()
-    grid = lambda META: (NUM_SMS,)
+    TOTAL_BLOCKS = NUM_SMS * GRID_FACTOR
+
+    grid = lambda META: (TOTAL_BLOCKS,)
     with torch.cuda.device(x.device):
         _grouped_gemm_forward_transposed_kernel[grid](
             # Pointers
@@ -141,7 +145,7 @@ def grouped_gemm_forward_transposed(
             N,
             K,
             E,
-            NUM_SMS,
+            TOTAL_BLOCKS,
             # Strides
             x.stride(0),
             x.stride(1),

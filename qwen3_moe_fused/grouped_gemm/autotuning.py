@@ -6,11 +6,21 @@ import torch
 import triton
 
 
-DEFAULT_M_BLOCK_SIZES = [16, 32, 64, 128, 256]
-DEFAULT_N_BLOCK_SIZES = [16, 32, 64, 128, 256]
-DEFAULT_K_BLOCK_SIZES = [16, 32, 64, 128, 256]
-DEFAULT_NUM_WARPS = [4, 8]
-DEFAULT_NUM_STAGES = [3, 4, 5, 6]
+if torch.version.hip:
+    DEFAULT_M_BLOCK_SIZES = [32, 64, 128]
+    DEFAULT_N_BLOCK_SIZES = [32, 64, 128]
+    DEFAULT_K_BLOCK_SIZES = [32, 64, 128]
+    DEFAULT_NUM_WARPS = [4, 8]
+    DEFAULT_NUM_STAGES = [1, 2, 3]
+    # Strix Halo and RDNA benefit significantly from having multiple active blocks per CU
+    GRID_FACTOR = 64
+else:
+    DEFAULT_M_BLOCK_SIZES = [16, 32, 64, 128, 256]
+    DEFAULT_N_BLOCK_SIZES = [16, 32, 64, 128, 256]
+    DEFAULT_K_BLOCK_SIZES = [16, 32, 64, 128, 256]
+    DEFAULT_NUM_WARPS = [4, 8]
+    DEFAULT_NUM_STAGES = [3, 4, 5, 6]
+    GRID_FACTOR = 1
 
 
 def get_num_sms() -> int:
@@ -43,11 +53,14 @@ def _exceeds_smem_capacity(
     BLOCK_SIZE_K: int,
     dtype: torch.dtype,
     smem_size: int,
-    slack: int = 0,
+    overhead: int = 16384,
 ) -> bool:
-    return (
-        num_stages * BLOCK_SIZE_K * (BLOCK_SIZE_M + BLOCK_SIZE_N) + BLOCK_SIZE_M * BLOCK_SIZE_N
-    ) * dtype.itemsize > smem_size + slack
+    # A and B are in input dtype (e.g. fp16/bf16)
+    a_size = num_stages * BLOCK_SIZE_M * BLOCK_SIZE_K * dtype.itemsize
+    b_size = num_stages * BLOCK_SIZE_N * BLOCK_SIZE_K * dtype.itemsize
+    # Accumulator C is always float32 in the kernel
+    c_size = BLOCK_SIZE_M * BLOCK_SIZE_N * 4
+    return a_size + b_size + c_size > smem_size - overhead
 
 
 def _common_prune_criteria(config: triton.Config, kwargs: dict[str, Any]) -> bool:
