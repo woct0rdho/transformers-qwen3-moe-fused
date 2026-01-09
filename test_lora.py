@@ -14,7 +14,7 @@ from qwen3_moe_fused.modular_qwen3_moe_fused import (
     Qwen3MoeFusedModel,
     moe_fused_kaiming_uniform_,
 )
-from test_quantize import get_rtol_atol
+from test_model import get_rtol_atol
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"

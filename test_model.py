@@ -7,10 +7,23 @@ from transformers import Qwen3MoeConfig, Qwen3MoeModel, set_seed
 
 from qwen3_moe_fused.convert import convert_model_to_fused, convert_model_to_unfused
 from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedModel
-from test_quantize import get_rtol_atol
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
+
+
+def get_rtol_atol(actual, expect):
+    actual = actual.float()
+    expect = expect.float()
+    diff = (actual - expect).abs()
+    eps = torch.tensor(torch.finfo(actual.dtype).eps, device=actual.device, dtype=actual.dtype)
+    rdiff = diff / torch.maximum(torch.maximum(actual.abs(), expect.abs()), eps)
+    return (
+        f"mean_rtol={rdiff.mean().item():.3g} "
+        f"max_rtol={rdiff.max().item():.3g} "
+        f"mean_atol={diff.max().item():.3g} "
+        f"max_atol={diff.max().item():.3g}"
+    )
 
 
 def main():

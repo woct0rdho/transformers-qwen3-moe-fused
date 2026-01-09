@@ -7,7 +7,7 @@ from qwen3_moe_fused.quantize_gguf.quantizer import (
     load_gguf_to_model,
     patch_load_gguf,
 )
-from test_quantize import get_rtol_atol
+from test_model import get_rtol_atol
 
 
 def main():
