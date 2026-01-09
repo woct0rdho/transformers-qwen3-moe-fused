@@ -4,8 +4,8 @@ import math
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
 from torch import nn
+from torch.nn import functional as F
 from transformers import Qwen3MoeConfig
 from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeDecoderLayer,

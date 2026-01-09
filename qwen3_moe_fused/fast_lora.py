@@ -1,9 +1,9 @@
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
 from bitsandbytes.functional import QuantState
 from torch import nn
+from torch.nn import functional as F
 
 from .kernels.fast_lora import fast_lora
 from .kernels.indexing import get_expert_counts_and_idx
