@@ -3,8 +3,6 @@ from typing import Optional
 import torch
 from kernels import get_kernel
 
-from ..forward import is_int_tensor
-
 
 triton_kernels = get_kernel("kernels-community/triton_kernels")
 matmul_ogs = triton_kernels.matmul_ogs.matmul_ogs
@@ -15,27 +13,6 @@ compute_expt_data_torch = triton_kernels.routing.compute_expt_data_torch
 def grouped_gemm_forward(
     x: torch.Tensor, w: torch.Tensor, m_sizes: torch.Tensor, dtype: Optional[torch.dtype] = None
 ) -> torch.Tensor:
-    """
-    Grouped GEMM forward pass using triton_kernels.matmul_ogs.
-
-    y[m, n] = sum_k w[s[m], n, k] * x[m, k]
-
-    Args:
-        x: Input tensor of shape (M, K)
-        w: Weight tensor of shape (E, N, K)
-        m_sizes: Tensor of shape (E,) containing number of rows per expert
-        dtype: Optional output dtype
-
-    Returns:
-        y: Output tensor of shape (M, N)
-    """
-    assert x.is_cuda
-    assert w.device == x.device
-    assert m_sizes.device == x.device
-    assert is_int_tensor(m_sizes)
-    assert x.is_contiguous()
-    assert w.is_contiguous()
-    assert m_sizes.is_contiguous()
     assert x.ndim == 2
     assert w.ndim == 3
     assert m_sizes.ndim == 1

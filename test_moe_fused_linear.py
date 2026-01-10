@@ -7,6 +7,7 @@ import torch
 from bitsandbytes.functional import dequantize_nf4, quantize_nf4
 
 from qwen3_moe_fused.functional import _moe_fused_linear_naive_fwd, moe_fused_linear
+from qwen3_moe_fused.grouped_gemm.cutlass.forward import grouped_gemm_forward as grouped_gemm_forward_cutlass
 from qwen3_moe_fused.grouped_gemm.quantized.forward import grouped_gemm_forward_4bit
 from qwen3_moe_fused.grouped_gemm.triton_kernels.forward import grouped_gemm_forward
 from qwen3_moe_fused.kernels.indexing import get_expert_counts
@@ -58,10 +59,15 @@ def main():
     print(torch.allclose(output_triton_kernels, output_naive, rtol=rtol, atol=atol))
     print(get_rtol_atol(output_triton_kernels, output_naive))
 
-    # output_grouped_gemm_4bit = grouped_gemm_forward_4bit(input, weight_quant, weight_quant_state, m_sizes)
-    # print("output_grouped_gemm_4bit", output_grouped_gemm_4bit.shape, output_grouped_gemm_4bit.dtype)
-    # print(torch.allclose(output_grouped_gemm_4bit, output_naive, rtol=rtol, atol=atol))
-    # print(get_rtol_atol(output_grouped_gemm_4bit, output_naive))
+    output_cutlass = grouped_gemm_forward_cutlass(input, weight, m_sizes.to(device="cpu", dtype=torch.int64))
+    print("output_cutlass", output_cutlass.shape, output_cutlass.dtype)
+    print(torch.allclose(output_cutlass, output_naive, rtol=rtol, atol=atol))
+    print(get_rtol_atol(output_cutlass, output_naive))
+
+    output_grouped_gemm_4bit = grouped_gemm_forward_4bit(input, weight_quant, weight_quant_state, m_sizes)
+    print("output_grouped_gemm_4bit", output_grouped_gemm_4bit.shape, output_grouped_gemm_4bit.dtype)
+    print(torch.allclose(output_grouped_gemm_4bit, output_naive, rtol=rtol, atol=atol))
+    print(get_rtol_atol(output_grouped_gemm_4bit, output_naive))
 
 
 if __name__ == "__main__":
