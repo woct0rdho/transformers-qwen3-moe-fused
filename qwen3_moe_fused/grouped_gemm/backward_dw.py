@@ -24,7 +24,7 @@ def _grouped_gemm_backward_dw_kernel(
     # Pointers
     x_ptr,
     y_ptr,
-    expert_offsets_ptr,
+    m_offsets_ptr,
     w_ptr,
     # Dimensions
     K: int,  # Arg names of M and K are swapped for autotune pruning
@@ -63,8 +63,8 @@ def _grouped_gemm_backward_dw_kernel(
         tile_n_idx = tile_idx % num_n_tiles
         tile_k_idx = tile_idx // num_n_tiles
 
-        m_start = tl.load(expert_offsets_ptr + expert_idx).to(tl.int32)
-        m_end = tl.load(expert_offsets_ptr + expert_idx + 1).to(tl.int32)
+        m_start = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
+        m_end = tl.load(m_offsets_ptr + expert_idx + 1).to(tl.int32)
         m_size = m_end - m_start
 
         if m_size > 0:
@@ -115,8 +115,8 @@ def grouped_gemm_backward_dw(
 
     w = torch.zeros((E, N, K), device=x.device, dtype=dtype)
 
-    expert_offsets = torch.zeros(E + 1, device=m_sizes.device, dtype=m_sizes.dtype)
-    expert_offsets[1:] = torch.cumsum(m_sizes, dim=0)
+    m_offsets = torch.zeros(E + 1, device=m_sizes.device, dtype=m_sizes.dtype)
+    m_offsets[1:] = torch.cumsum(m_sizes, dim=0)
 
     NUM_SMS = get_num_sms()
     TOTAL_BLOCKS = NUM_SMS * GRID_FACTOR
@@ -127,7 +127,7 @@ def grouped_gemm_backward_dw(
             # Pointers
             x,
             y,
-            expert_offsets,
+            m_offsets,
             w,
             # Dimensions
             M,

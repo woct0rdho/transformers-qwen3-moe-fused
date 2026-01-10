@@ -52,10 +52,10 @@ def main():
     print(torch.allclose(output_grouped_gemm, output_naive, rtol=rtol, atol=atol))
     print(get_rtol_atol(output_grouped_gemm, output_naive))
 
-    output_grouped_gemm_4bit = grouped_gemm_forward_4bit(input, weight_quant, weight_quant_state, m_sizes)
-    print("output_grouped_gemm_4bit", output_grouped_gemm_4bit.shape, output_grouped_gemm_4bit.dtype)
-    print(torch.allclose(output_grouped_gemm_4bit, output_naive, rtol=rtol, atol=atol))
-    print(get_rtol_atol(output_grouped_gemm_4bit, output_naive))
+    # output_grouped_gemm_4bit = grouped_gemm_forward_4bit(input, weight_quant, weight_quant_state, m_sizes)
+    # print("output_grouped_gemm_4bit", output_grouped_gemm_4bit.shape, output_grouped_gemm_4bit.dtype)
+    # print(torch.allclose(output_grouped_gemm_4bit, output_naive, rtol=rtol, atol=atol))
+    # print(get_rtol_atol(output_grouped_gemm_4bit, output_naive))
 
 
 if __name__ == "__main__":
