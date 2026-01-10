@@ -12,7 +12,7 @@ from qwen3_moe_fused.functional import (
     moe_fused_linear,
 )
 from qwen3_moe_fused.kernels.indexing import get_expert_counts
-from test_model import get_rtol_atol
+from test_utils import get_rtol_atol
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"

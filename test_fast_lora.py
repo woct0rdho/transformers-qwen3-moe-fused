@@ -11,7 +11,7 @@ from transformers import set_seed
 from qwen3_moe_fused.fast_lora import patch_Qwen3MoeFusedSparseMoeBlock_forward
 from qwen3_moe_fused.lora import patch_lora_config
 from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedModel
-from test_model import get_rtol_atol
+from test_utils import get_rtol_atol
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"

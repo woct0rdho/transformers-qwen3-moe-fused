@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 
 import torch
@@ -7,7 +9,7 @@ from qwen3_moe_fused.quantize_gguf.quantizer import (
     load_gguf_to_model,
     patch_load_gguf,
 )
-from test_model import get_rtol_atol
+from test_utils import get_rtol_atol
 
 
 def main():

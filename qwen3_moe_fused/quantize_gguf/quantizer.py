@@ -7,7 +7,8 @@ from transformers.quantizers.quantizers_utils import get_module_from_name
 from transformers.utils.quantization_config import QuantizationConfigMixin
 
 from ..modular_qwen3_moe_fused import MoeFusedLinear
-from .layer import GGUFEmbedding, GGUFLinear, MoeFusedLinearGGUF, gguf_dequantize
+from .dequant import dequantize
+from .layer import GGUFEmbedding, GGUFLinear, GGUFMoeFusedLinear
 from .utils import GGUFQuantizedTensor, load_gguf_checkpoint_quantized
 
 
@@ -41,7 +42,7 @@ class GGUFHfQuantizer(HfQuantizer):
 
     def param_needs_quantization(self, model: nn.Module, param_name: str, **kwargs) -> bool:
         module, name = get_module_from_name(model, param_name)
-        return isinstance(module, (GGUFLinear, MoeFusedLinearGGUF, GGUFEmbedding)) and name == "weight"
+        return isinstance(module, (GGUFLinear, GGUFMoeFusedLinear, GGUFEmbedding)) and name == "weight"
 
     def create_quantized_param(
         self,
@@ -165,7 +166,7 @@ def load_gguf_to_model(
         is_output_gguf = isinstance(output_embeddings, GGUFLinear)
 
         if is_input_gguf and not is_output_gguf:
-            w = gguf_dequantize(input_embeddings.weight, input_embeddings.tensor_type, input_embeddings.original_shape)
+            w = dequantize(input_embeddings.weight, input_embeddings.tensor_type, input_embeddings.original_shape)
             w = w.to(device=output_embeddings.weight.device, dtype=output_embeddings.weight.dtype)
 
             if w.shape == output_embeddings.weight.shape:
@@ -221,15 +222,7 @@ def replace_with_gguf_linear(
                 curr_dtype = module.weight.dtype if hasattr(module, "weight") and module.weight is not None else None
 
             new_module = None
-            if isinstance(module, MoeFusedLinear):
-                new_module = MoeFusedLinearGGUF(
-                    module.in_features,
-                    module.out_features,
-                    module.num_experts,
-                    device=module.weight.device if module.weight is not None else None,
-                    dtype=curr_dtype,
-                )
-            elif isinstance(module, nn.Embedding):
+            if isinstance(module, nn.Embedding):
                 new_module = GGUFEmbedding(
                     module.num_embeddings,
                     module.embedding_dim,
@@ -246,6 +239,14 @@ def replace_with_gguf_linear(
                     dtype=curr_dtype,
                     n_head=None,
                     n_kv_head=None,
+                )
+            elif isinstance(module, MoeFusedLinear):
+                new_module = GGUFMoeFusedLinear(
+                    module.in_features,
+                    module.out_features,
+                    module.num_experts,
+                    device=module.weight.device if module.weight is not None else None,
+                    dtype=curr_dtype,
                 )
 
             if new_module is not None:

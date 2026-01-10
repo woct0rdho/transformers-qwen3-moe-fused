@@ -9,7 +9,7 @@ from transformers import BitsAndBytesConfig, Qwen3MoeModel, set_seed
 
 from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedModel
 from qwen3_moe_fused.quantize.quantizer import patch_bnb_quantizer
-from test_model import get_rtol_atol
+from test_utils import get_rtol_atol
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"

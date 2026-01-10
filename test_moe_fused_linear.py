@@ -9,7 +9,7 @@ from bitsandbytes.functional import dequantize_nf4, quantize_nf4
 from qwen3_moe_fused.functional import _moe_fused_linear_naive_fwd, moe_fused_linear
 from qwen3_moe_fused.grouped_gemm.quantized.forward import grouped_gemm_forward_4bit
 from qwen3_moe_fused.kernels.indexing import get_expert_counts
-from test_model import get_rtol_atol
+from test_utils import get_rtol_atol
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"

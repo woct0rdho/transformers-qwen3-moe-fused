@@ -3,18 +3,14 @@
 import os
 
 import torch
+from transformers import AutoConfig
 
 from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM
 from qwen3_moe_fused.quantize_gguf.quantizer import (
     load_gguf_to_model,
     patch_load_gguf,
 )
-
-
-def print_vram(label):
-    allocated = torch.cuda.memory_allocated() / 1024**2
-    reserved = torch.cuda.memory_reserved() / 1024**2
-    print(f"[{label}] VRAM allocated: {allocated:.2f} MB, reserved: {reserved:.2f} MB")
+from test_gguf_vram import print_vram
 
 
 def main():
@@ -30,10 +26,10 @@ def main():
     print_vram("Initial state")
 
     print("Initializing model skeleton...")
-    # Use device_map="meta" to load only the model skeleton
-    model = Qwen3MoeFusedForCausalLM.from_pretrained(
-        model_dir, gguf_file=gguf_file, device_map="meta", torch_dtype=dtype
-    )
+    config = AutoConfig.from_pretrained(model_dir, gguf_file=gguf_file)
+    config.dtype = dtype
+    with torch.device("meta"):
+        model = Qwen3MoeFusedForCausalLM(config)
 
     print_vram("After initializing skeleton")
 

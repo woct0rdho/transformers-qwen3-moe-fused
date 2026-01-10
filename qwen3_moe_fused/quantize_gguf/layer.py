@@ -2,21 +2,11 @@ from typing import Optional
 
 import numpy as np
 import torch
-from gguf import GGMLQuantizationType, dequantize
 from torch import nn as nn
 from torch.nn import functional as F
 
 from ..modular_qwen3_moe_fused import MoeFusedLinear, moe_fused_linear
-
-
-def gguf_dequantize(weight_data: torch.Tensor, tensor_type: GGMLQuantizationType, shape: tuple) -> torch.Tensor:
-    if weight_data.device.type != "cpu":
-        data_np = weight_data.detach().cpu().numpy()
-    else:
-        data_np = weight_data.detach().numpy()
-    w_np = dequantize(data_np, tensor_type)
-    w_np = w_np.reshape(shape)
-    return torch.from_numpy(w_np)
+from .dequant import dequantize
 
 
 def reverse_permute_weights(weights: torch.Tensor, n_head: int, num_kv_heads: Optional[int] = None) -> torch.Tensor:
@@ -51,16 +41,19 @@ class GGUFEmbedding(nn.Module):
                 return F.embedding(x, self.weight, self.padding_idx)
             raise RuntimeError("GGUFEmbedding not initialized with GGUF data")
 
-        w = gguf_dequantize(self.weight, self.tensor_type, self.original_shape)
         dtype = self.compute_dtype if self.compute_dtype is not None else torch.get_default_dtype()
-        w = w.to(device=x.device, dtype=dtype)
+        w = dequantize(self.weight, self.tensor_type, self.original_shape, dtype)
+        w = w.to(x.device)
 
-        if w.shape != (self.num_embeddings, self.embedding_dim):
-            if w.shape == (self.embedding_dim, self.num_embeddings):
-                w = w.t()
-            else:
-                if w.numel() == self.num_embeddings * self.embedding_dim:
-                    w = w.view(self.num_embeddings, self.embedding_dim)
+        expected = (self.num_embeddings, self.embedding_dim)
+        if w.shape == expected:
+            pass
+        elif w.shape == (self.embedding_dim, self.num_embeddings):
+            w = w.t()
+        elif w.numel() == np.prod(expected):
+            w = w.view(expected)
+        else:
+            raise RuntimeError(f"Shape mismatch in GGUFEmbedding: expected {expected}, got {w.shape}")
 
         return F.embedding(x, w, self.padding_idx)
 
@@ -96,21 +89,18 @@ class GGUFLinear(nn.Module):
                 return F.linear(x, self.weight, self.bias)
             raise RuntimeError("GGUFLinear not initialized with GGUF data")
 
-        w = gguf_dequantize(self.weight, self.tensor_type, self.original_shape)
-        w = w.to(device=x.device, dtype=x.dtype)
+        w = dequantize(self.weight, self.tensor_type, self.original_shape, x.dtype)
+        w = w.to(x.device)
 
-        if w.shape == (self.out_features, self.in_features):
+        expected = (self.out_features, self.in_features)
+        if w.shape == expected:
             pass
         elif w.shape == (self.in_features, self.out_features):
             w = w.t()
+        elif w.numel() == self.out_features * self.in_features:
+            w = w.view(expected)
         else:
-            if w.numel() == self.out_features * self.in_features:
-                w = w.view(self.out_features, self.in_features)
-            else:
-                raise RuntimeError(
-                    f"Shape mismatch in GGUFLinear: expected {(self.out_features, self.in_features)}, "
-                    f"got {w.shape} (original {self.original_shape})"
-                )
+            raise RuntimeError(f"Shape mismatch in GGUFLinear: expected {expected}, got {w.shape}")
 
         if self.n_head is not None:
             w = reverse_permute_weights(w, self.n_head, self.n_kv_head)
@@ -118,7 +108,7 @@ class GGUFLinear(nn.Module):
         return F.linear(x, w, self.bias)
 
 
-class MoeFusedLinearGGUF(MoeFusedLinear):
+class GGUFMoeFusedLinear(MoeFusedLinear):
     def __init__(
         self,
         in_features: int,
@@ -128,6 +118,8 @@ class MoeFusedLinearGGUF(MoeFusedLinear):
         dtype: Optional[torch.dtype] = None,
     ) -> None:
         super().__init__(in_features, out_features, num_experts, device=device, dtype=dtype)
+        if hasattr(self, "weight"):
+            del self.weight
         self.register_buffer("weight", None)
         self.tensor_type = None
         self.original_shape = None
@@ -136,25 +128,20 @@ class MoeFusedLinearGGUF(MoeFusedLinear):
     def forward(self, x: torch.Tensor, m_sizes: torch.Tensor) -> torch.Tensor:
         if self.tensor_type is None:
             if self.weight is not None and self.weight.is_floating_point():
-                if moe_fused_linear:
-                    return moe_fused_linear(x, self.weight, m_sizes)
-            raise RuntimeError("MoeFusedLinearGGUF not initialized with GGUF data")
+                return moe_fused_linear(x, self.weight, m_sizes)
+            raise RuntimeError("GGUFMoeFusedLinear not initialized with GGUF data")
 
-        w = gguf_dequantize(self.weight, self.tensor_type, self.original_shape)
-        w = w.to(device=x.device, dtype=x.dtype)
+        w = dequantize(self.weight, self.tensor_type, self.original_shape, x.dtype)
+        w = w.to(x.device)
+
         expected = (self.num_experts, self.out_features, self.in_features)
-
         if w.shape == expected:
             pass
         elif w.shape == (self.num_experts, self.in_features, self.out_features):
             w = w.transpose(1, 2)
+        elif w.numel() == np.prod(expected):
+            w = w.view(expected)
         else:
-            if w.numel() == np.prod(expected):
-                w = w.view(expected)
-            else:
-                raise RuntimeError(f"Shape mismatch in MoeFusedLinearGGUF: expected {expected}, got {w.shape}")
+            raise RuntimeError(f"Shape mismatch in GGUFMoeFusedLinear: expected {expected}, got {w.shape}")
 
-        if moe_fused_linear:
-            return moe_fused_linear(x, w, m_sizes)
-        else:
-            raise ImportError("moe_fused_linear not found")
+        return moe_fused_linear(x, w, m_sizes)

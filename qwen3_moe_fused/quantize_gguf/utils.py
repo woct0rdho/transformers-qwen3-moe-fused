@@ -1,3 +1,4 @@
+import re
 from typing import Any, NamedTuple, Optional
 
 import numpy as np
@@ -123,10 +124,32 @@ def load_gguf_checkpoint_quantized(
     if return_tensors:
         parsed_parameters["tensors"] = {}
         tensor_key_mapping = get_gguf_hf_weights_map(model_to_load)
+
+        # Patch mapping for fused MoE
+        if updated_architecture in ("qwen2_moe", "qwen3_moe") and model_to_load is not None:
+            for name, module in model_to_load.named_modules():
+                if (
+                    hasattr(module, "gate_proj")
+                    and hasattr(module, "up_proj")
+                    and hasattr(module, "down_proj")
+                    and hasattr(module, "num_experts")
+                ):
+                    # Check if it is the fused block by checking type of gate_proj
+                    if "MoeFusedLinear" in str(type(module.gate_proj)):
+                        match = re.search(r"layers\.(\d+)\.mlp", name)
+                        if match:
+                            layer_idx = match.group(1)
+                            tensor_key_mapping[f"blk.{layer_idx}.ffn_gate_exps.weight"] = f"{name}.gate_proj.weight"
+                            tensor_key_mapping[f"blk.{layer_idx}.ffn_up_exps.weight"] = f"{name}.up_proj.weight"
+                            tensor_key_mapping[f"blk.{layer_idx}.ffn_down_exps.weight"] = f"{name}.down_proj.weight"
+
         config = parsed_parameters.get("config", {})
 
         # Use original processor logic only when dequantizing
         OriginalProcessorClass = TENSOR_PROCESSORS.get(architecture, TensorProcessor)
+        if model_to_load is not None and "Qwen3MoeFused" in model_to_load.__class__.__name__:
+            OriginalProcessorClass = TensorProcessor
+
         original_processor = OriginalProcessorClass(config=config)
         # Custom processor that passes through, effectively disabling splitting/permuting for quantized
         pass_through_processor = GGUFTensorProcessor(config=config)
