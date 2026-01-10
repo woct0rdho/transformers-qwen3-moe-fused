@@ -8,7 +8,7 @@ import triton
 import triton.language as tl
 from bitsandbytes.functional import QuantState, dequantize_blockwise
 
-from .autotuning import (
+from ..autotuning import (
     get_autotune_configs,
     get_autotune_keys,
     get_num_sms,

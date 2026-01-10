@@ -6,7 +6,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .autotuning import (
+from ..autotuning import (
     get_autotune_configs,
     get_autotune_keys,
     prune_configs,
