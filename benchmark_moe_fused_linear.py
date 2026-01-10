@@ -13,6 +13,7 @@ import triton
 
 from qwen3_moe_fused.grouped_gemm.cutlass.forward import grouped_gemm_forward as grouped_gemm_forward_cutlass
 from qwen3_moe_fused.grouped_gemm.forward import grouped_gemm_forward
+from qwen3_moe_fused.grouped_gemm.yamoe.forward import grouped_gemm_forward as grouped_gemm_forward_yamoe
 from qwen3_moe_fused.kernels.indexing import get_expert_counts
 
 
@@ -21,6 +22,7 @@ os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 providers = {
     "grouped_gemm": grouped_gemm_forward,
     "cutlass": grouped_gemm_forward_cutlass,
+    "yamoe": grouped_gemm_forward_yamoe,
 }
 provider_names = list(providers)
 
