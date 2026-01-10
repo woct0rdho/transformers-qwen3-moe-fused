@@ -11,9 +11,7 @@ os.environ["AUTOTUNE_BATCH_SIZE"] = "1"
 import torch
 import triton
 
-from qwen3_moe_fused.grouped_gemm.cutlass.forward import grouped_gemm_forward as grouped_gemm_forward_cutlass
 from qwen3_moe_fused.grouped_gemm.forward import grouped_gemm_forward
-from qwen3_moe_fused.grouped_gemm.yamoe.forward import grouped_gemm_forward as grouped_gemm_forward_yamoe
 from qwen3_moe_fused.kernels.indexing import get_expert_counts
 
 
@@ -21,8 +19,6 @@ os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 providers = {
     "grouped_gemm": grouped_gemm_forward,
-    "cutlass": grouped_gemm_forward_cutlass,
-    "yamoe": grouped_gemm_forward_yamoe,
 }
 provider_names = list(providers)
 
@@ -58,9 +54,6 @@ def benchmark(N, provider):
     # Assume selected_experts is sorted
     selected_experts, _ = torch.sort(selected_experts)
     m_sizes = get_expert_counts(selected_experts, num_experts)
-
-    if provider == "cutlass":
-        m_sizes = m_sizes.to(device="cpu", dtype=torch.int64)
 
     quantiles = [0.5, 0.2, 0.8]
     ms, min_ms, max_ms = triton.testing.do_bench(
