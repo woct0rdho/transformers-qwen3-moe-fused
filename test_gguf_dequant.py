@@ -90,8 +90,8 @@ def main():
         if torch.isnan(out_ref).any():
             print("ref contains NaN")
 
-        rtol = 1e-2
-        atol = 1e-2
+        rtol = 1e-8
+        atol = 1e-8
         print(torch.allclose(out, out_ref, rtol=rtol, atol=atol))
         print(get_rtol_atol(out, out_ref))
 

@@ -3,12 +3,15 @@
 import gguf
 import numpy as np
 import torch
-from gguf.quants import IQ2_XXS, IQ3_XXS
+from gguf.quants import IQ2_XXS, IQ3_S, IQ3_XXS
 
 
 IQ3_XXS.init_grid()
 GRID_IQ3_XXS = torch.from_numpy(IQ3_XXS.grid).squeeze()
 KSIGNS_IQ2_XXS = torch.from_numpy(np.frombuffer(IQ2_XXS.ksigns, dtype=np.uint8).copy())
+
+IQ3_S.init_grid()
+GRID_IQ3_S = torch.from_numpy(IQ3_S.grid).squeeze()
 
 
 TORCH_COMPATIBLE_QTYPES = {
@@ -323,6 +326,38 @@ def dequantize_blocks_IQ4_XS(blocks, block_size, type_size, dtype=None):
     return (dl * qs).reshape((n_blocks, -1))
 
 
+def dequantize_blocks_IQ3_S(blocks, block_size, type_size, dtype=None):
+    n_blocks = blocks.shape[0]
+
+    d, qs, qh, signs, scales = split_block_dims(blocks, 2, 64, 8, 32)
+
+    d = d.view(torch.float16).to(dtype)
+
+    # Scales
+    scales = scales.view(torch.uint8)
+    scales = torch.stack([scales & 0xF, scales >> 4], dim=-1).reshape(n_blocks, 8)
+    db = d * (1 + 2 * scales.to(dtype))
+    db = db.reshape(n_blocks, 8, 1, 1)
+
+    # Signs
+    shifts = torch.arange(8, device=d.device, dtype=torch.uint8).reshape(1, 1, 8)
+    signs = (signs.unsqueeze(-1) >> shifts) & 1
+    signs = torch.where(
+        signs == 0, torch.tensor(1.0, dtype=dtype, device=d.device), torch.tensor(-1.0, dtype=dtype, device=d.device)
+    )
+    signs = signs.reshape(n_blocks, 8, 8, 4)
+
+    # Grid
+    qh_bits = (qh.unsqueeze(-1) >> shifts) & 1
+    qh_bits = qh_bits.reshape(n_blocks, 64)
+    qs = qs.to(torch.int16) | (qh_bits.to(torch.int16) << 8)
+
+    grid_val = GRID_IQ3_S.to(dtype=dtype, device=d.device)[qs.to(torch.long)]
+    grid_val = grid_val.reshape(n_blocks, 8, 8, 4)
+
+    return (db * grid_val * signs).reshape(n_blocks, 256)
+
+
 def dequantize_blocks_IQ3_XXS(blocks, block_size, type_size, dtype=None):
     n_blocks = blocks.shape[0]
 
@@ -367,5 +402,6 @@ dequantize_functions = {
     gguf.GGMLQuantizationType.Q2_K: dequantize_blocks_Q2_K,
     gguf.GGMLQuantizationType.IQ4_NL: dequantize_blocks_IQ4_NL,
     gguf.GGMLQuantizationType.IQ4_XS: dequantize_blocks_IQ4_XS,
+    gguf.GGMLQuantizationType.IQ3_S: dequantize_blocks_IQ3_S,
     gguf.GGMLQuantizationType.IQ3_XXS: dequantize_blocks_IQ3_XXS,
 }
