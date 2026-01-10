@@ -76,6 +76,7 @@ def main():
         numel = n_blocks * block_size
         weights = np.random.uniform(-1, 1, numel).astype(np.float32)
 
+        # Quantize may be slow. We only need to dequantize fast
         quantized = ggml_quants.quantize(weights, qtype)
         print("quantized", qtype.name, quantized.shape, quantized.dtype)
 

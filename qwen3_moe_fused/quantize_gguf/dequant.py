@@ -1,9 +1,10 @@
 # Modified from https://github.com/city96/ComfyUI-GGUF/blob/795e45156ece99afbc3efef911e63fcb46e6a20d/dequant.py
+# Reference implementation at https://github.com/ggml-org/llama.cpp/blob/e54d41befcc1575f4c898c5ff4ef43970cead75f/gguf-py/gguf/quants.py
 
 import gguf
 import numpy as np
 import torch
-from gguf.quants import IQ1_S, IQ2_S, IQ2_XXS, IQ3_S, IQ3_XXS
+from gguf.quants import IQ1_M, IQ1_S, IQ2_S, IQ2_XXS, IQ3_S, IQ3_XXS
 
 
 # IQ quants
@@ -21,6 +22,8 @@ GRID_IQ2_S = torch.from_numpy(IQ2_S.grid).squeeze()
 IQ2_XXS.init_grid()
 GRID_IQ2_XXS = torch.from_numpy(IQ2_XXS.grid).squeeze()
 KSIGNS_IQ2_XXS = torch.from_numpy(np.frombuffer(IQ2_XXS.ksigns, dtype=np.uint8).copy())
+
+IQ1_M.init_grid()  # Uses same grid as IQ1_S internally
 
 IQ1_S.init_grid()
 GRID_IQ1_S = torch.from_numpy(IQ1_S.grid).squeeze()
@@ -473,6 +476,55 @@ def dequantize_blocks_IQ2_XXS(blocks, block_size, type_size, dtype=None):
     return res.reshape(n_blocks, 256)
 
 
+def dequantize_blocks_IQ1_M(blocks, block_size, type_size, dtype=None):
+    n_blocks = blocks.shape[0]
+
+    # qs: 32, qh: 16, scales: 8
+    qs, qh, scales = split_block_dims(blocks, 32, 16)
+
+    # scales is 8 bytes -> 4 uint16s
+    scales_u16 = scales.reshape(n_blocks, 4, 2).to(torch.int32)
+    scales_u16 = scales_u16[:, :, 0] | (scales_u16[:, :, 1] << 8)  # (N, 4)
+
+    # d (fp16) packed in top 4 bits of each scale
+    d_bits = (
+        ((scales_u16[:, 0] & 0xF000) >> 12)
+        | ((scales_u16[:, 1] & 0xF000) >> 8)
+        | ((scales_u16[:, 2] & 0xF000) >> 4)
+        | ((scales_u16[:, 3] & 0xF000))
+    )
+    d = d_bits.to(torch.int16).view(torch.float16).to(dtype).reshape(n_blocks, 1)
+
+    # sub-scales (4 per uint16, 16 total)
+    sub_shifts = torch.tensor([0, 3, 6, 9], device=d.device, dtype=torch.int32).reshape(1, 1, 4)
+    sub_scales = (scales_u16.reshape(n_blocks, 4, 1) >> sub_shifts) & 7
+    dl = d.reshape(n_blocks, 1, 1) * (2 * sub_scales.to(dtype) + 1)
+    # dl (N, 4, 4) -> (N, 16).
+    # Reshape for (N, 8, 2, 1, 1) to match grid_val (N, 8, 2, 2, 8)
+    dl = dl.reshape(n_blocks, 8, 2, 1, 1)
+
+    # Unpack qh (16 bytes -> 32 values)
+    qh_bytes = qh.to(torch.int32)
+    qh_shifts = torch.tensor([0, 4], device=d.device, dtype=torch.int32).reshape(1, 1, 2)
+    qh_unpacked = (qh_bytes.reshape(n_blocks, 16, 1) >> qh_shifts).reshape(n_blocks, 32)
+
+    delta = torch.where(
+        (qh_unpacked & 8) == 0,
+        torch.tensor(0.125, dtype=dtype, device=d.device),
+        torch.tensor(-0.125, dtype=dtype, device=d.device),
+    ).reshape(n_blocks, 8, 2, 2, 1)
+
+    qh_bits = qh_unpacked & 7
+    qs = qs.to(torch.int32)
+    indices = qs | (qh_bits << 8)
+
+    grid_val = GRID_IQ1_S.to(dtype=dtype, device=d.device)[indices.to(torch.long)]
+    grid_val = grid_val.reshape(n_blocks, 8, 2, 2, 8)
+
+    res = dl * (grid_val + delta)
+    return res.reshape(n_blocks, 256)
+
+
 def dequantize_blocks_IQ1_S(blocks, block_size, type_size, dtype=None):
     n_blocks = blocks.shape[0]
 
@@ -537,5 +589,6 @@ dequantize_functions = {
     gguf.GGMLQuantizationType.IQ3_XXS: dequantize_blocks_IQ3_XXS,
     gguf.GGMLQuantizationType.IQ2_S: dequantize_blocks_IQ2_S,
     gguf.GGMLQuantizationType.IQ2_XXS: dequantize_blocks_IQ2_XXS,
+    gguf.GGMLQuantizationType.IQ1_M: dequantize_blocks_IQ1_M,
     gguf.GGMLQuantizationType.IQ1_S: dequantize_blocks_IQ1_S,
 }
