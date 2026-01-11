@@ -30,7 +30,7 @@ line-length = 119
 
 [tool.ruff.lint]
 # Never enforce `E501` (line length violations).
-ignore = ["C901", "E501", "E741", "F402", "F823" ]
+ignore = ["C901", "E501", "E731", "E741", "F402", "F823"]
 # RUF013: Checks for the use of implicit Optional
 #  in type annotations when the default parameter value is None.
 select = ["C", "E", "F", "I", "W", "RUF013", "UP006"]
@@ -45,8 +45,10 @@ extend-safe-fixes = ["UP006"]
 [tool.ruff.lint.isort]
 lines-after-imports = 2
 # known-first-party = ["transformers"]
-# known-unsloth = ["unsloth"]
-# sections = ["FUTURE", "STDLIB", "UNSLOTH", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+section-order = ["future", "standard-library", "unsloth", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.isort.sections]
+unsloth = ["unsloth"]
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
