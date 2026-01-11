@@ -150,7 +150,5 @@ def patch_lora_config(*, rank_pattern: Optional[dict[str, int]] = None) -> None:
     def new_init(self, *args, **kwargs):
         old_init(self, *args, **kwargs)
         self._register_custom_module({MoeFusedLinear: LoraMoeFusedLinear})
-        if rank_pattern is not None:
-            self.rank_pattern = rank_pattern
 
     LoraConfig.__init__ = new_init

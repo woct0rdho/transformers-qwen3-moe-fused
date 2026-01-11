@@ -40,7 +40,8 @@ def main():
             "up_proj",
             "down_proj",
         ],
-        # We can set a smaller rank for MoE layers
+        # We can set a smaller rank for MoE layers,
+        # see https://github.com/woct0rdho/transformers-qwen3-moe-fused/issues/3#issuecomment-3144009673
         # With rslora, we don't need to set a different alpha for them
         rank_pattern={
             "q_proj": 16,
