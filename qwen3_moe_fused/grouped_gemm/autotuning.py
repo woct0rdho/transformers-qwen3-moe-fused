@@ -71,8 +71,11 @@ def _common_prune_criteria(smem_criteria: Callable, config: triton.Config, kwarg
         return True
     if BLOCK_SIZE_K > max_block_size_K:
         return True
+    if BLOCK_SIZE_N * BLOCK_SIZE_K >= 256 * 256:
+        # Almost always useless and makes autotune much slower
+        return True
 
-    min_block_size_M = min(triton.next_power_of_2(tokens_per_expert // 2 + 1), 64)
+    min_block_size_M = min(triton.next_power_of_2(tokens_per_expert // 2 + 1), 16)
     min_block_size_N = min(triton.next_power_of_2(N // 2 + 1), 64)
     min_block_size_K = min(triton.next_power_of_2(K // 2 + 1), 64)
     if BLOCK_SIZE_M * BLOCK_SIZE_N < min_block_size_M * min_block_size_N:
