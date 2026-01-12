@@ -1,6 +1,6 @@
 import os
 from itertools import product
-from typing import Any
+from typing import Any, Callable
 
 import torch
 import triton
@@ -46,24 +46,7 @@ def _get_device_properties() -> dict[str, Any]:
     return triton.runtime.driver.active.utils.get_device_properties(torch.cuda.current_device())
 
 
-def _exceeds_smem_capacity(
-    num_stages: int,
-    BLOCK_SIZE_M: int,
-    BLOCK_SIZE_N: int,
-    BLOCK_SIZE_K: int,
-    dtype: torch.dtype,
-    smem_size: int,
-    overhead: int = 16384,
-) -> bool:
-    # A and B are in input dtype (e.g. fp16/bf16)
-    a_size = num_stages * BLOCK_SIZE_M * BLOCK_SIZE_K * dtype.itemsize
-    b_size = num_stages * BLOCK_SIZE_N * BLOCK_SIZE_K * dtype.itemsize
-    # Accumulator C is always float32 in the kernel
-    c_size = BLOCK_SIZE_M * BLOCK_SIZE_N * 4
-    return a_size + b_size + c_size > smem_size - overhead
-
-
-def _common_prune_criteria(config: triton.Config, kwargs: dict[str, Any]) -> bool:
+def _common_prune_criteria(smem_criteria: Callable, config: triton.Config, kwargs: dict[str, Any]) -> bool:
     num_stages = config.num_stages
     BLOCK_SIZE_M = config.kwargs["BLOCK_SIZE_M"]
     BLOCK_SIZE_N = config.kwargs["BLOCK_SIZE_N"]
@@ -71,7 +54,7 @@ def _common_prune_criteria(config: triton.Config, kwargs: dict[str, Any]) -> boo
     dtype = kwargs["x_ptr"].dtype
     device_properties = _get_device_properties()
     smem_size = device_properties["max_shared_mem"]
-    if _exceeds_smem_capacity(num_stages, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, dtype, smem_size):
+    if smem_criteria(num_stages, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, dtype, smem_size):
         return True
 
     M = kwargs["M"]
@@ -102,10 +85,10 @@ def _common_prune_criteria(config: triton.Config, kwargs: dict[str, Any]) -> boo
     return False
 
 
-def prune_configs(configs: list[triton.Config], args, **kwargs) -> list[triton.Config]:
+def prune_configs(smem_criteria: Callable, configs: list[triton.Config], args, **kwargs) -> list[triton.Config]:
     pruned_configs = []
     for config in configs:
-        if _common_prune_criteria(config, args):
+        if _common_prune_criteria(smem_criteria, config, args):
             continue
         pruned_configs.append(config)
     return pruned_configs

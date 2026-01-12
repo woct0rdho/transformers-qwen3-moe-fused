@@ -1,5 +1,7 @@
 # w[e, n, k] = sum_m if(s[m] == e) y[m, n] * x[m, k]
 
+from functools import partial
+
 import torch
 import triton
 import triton.language as tl
@@ -14,9 +16,26 @@ from .autotuning import (
 from .forward import is_int_tensor
 
 
+def exceeds_smem_capacity(
+    num_stages: int,
+    BLOCK_SIZE_M: int,
+    BLOCK_SIZE_N: int,
+    BLOCK_SIZE_K: int,
+    dtype: torch.dtype,
+    smem_size: int,
+    overhead: int = 16384,
+) -> bool:
+    # A and B are in input dtype (e.g. fp16/bf16)
+    a_size = num_stages * BLOCK_SIZE_M * BLOCK_SIZE_K * dtype.itemsize
+    b_size = num_stages * BLOCK_SIZE_M * BLOCK_SIZE_N * dtype.itemsize
+    # Accumulator C is always float32 in the kernel
+    c_size = BLOCK_SIZE_N * BLOCK_SIZE_K * 4
+    return a_size + b_size + c_size > smem_size - overhead
+
+
 @triton.autotune(
     configs=get_autotune_configs(),
-    prune_configs_by={"early_config_prune": prune_configs},
+    prune_configs_by={"early_config_prune": partial(prune_configs, exceeds_smem_capacity)},
     key=get_autotune_keys(),
 )
 @triton.jit

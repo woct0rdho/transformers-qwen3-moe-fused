@@ -1,5 +1,6 @@
 # y[m, n] = sum_k w[s[m], k, n] * x[m, k]
 
+from functools import partial
 from typing import Optional
 
 import torch
@@ -13,12 +14,12 @@ from .autotuning import (
     get_num_sms,
     prune_configs,
 )
-from .forward import is_int_tensor
+from .forward import exceeds_smem_capacity, is_int_tensor
 
 
 @triton.autotune(
     configs=get_autotune_configs(),
-    prune_configs_by={"early_config_prune": prune_configs},
+    prune_configs_by={"early_config_prune": partial(prune_configs, exceeds_smem_capacity)},
     key=get_autotune_keys(),
 )
 @triton.jit
@@ -75,7 +76,7 @@ def _grouped_gemm_forward_transposed_kernel(
 
                 offs_m = m_start + tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
                 x_ptrs = x_ptr + stride_xm * offs_m[:, None] + stride_xk * offs_k[None, :]
-                mask_m = offs_m < m_start + m_size
+                mask_m = offs_m < m_end
 
                 offs_n = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
                 w_ptrs = w_ptr + stride_we * expert_idx + stride_wn * offs_n[:, None] + stride_wk * offs_k[None, :]
