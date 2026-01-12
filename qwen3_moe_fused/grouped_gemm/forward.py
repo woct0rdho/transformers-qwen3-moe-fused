@@ -23,14 +23,15 @@ def exceeds_smem_capacity(
     BLOCK_SIZE_K: int,
     dtype: torch.dtype,
     smem_size: int,
-    overhead: int = 16384,
 ) -> bool:
-    # A and B are in input dtype (e.g. fp16/bf16)
-    a_size = num_stages * BLOCK_SIZE_M * BLOCK_SIZE_K * dtype.itemsize
-    b_size = num_stages * BLOCK_SIZE_N * BLOCK_SIZE_K * dtype.itemsize
-    # Accumulator C is always float32 in the kernel
-    c_size = BLOCK_SIZE_M * BLOCK_SIZE_N * 4
-    return a_size + b_size + c_size > smem_size - overhead
+    x_size = BLOCK_SIZE_M * BLOCK_SIZE_K * dtype.itemsize
+    w_size = BLOCK_SIZE_N * BLOCK_SIZE_K * dtype.itemsize
+    if num_stages <= 1:
+        size = max(x_size, w_size)
+    else:
+        # (num_stages - 1) stages of both tiles will be cached in smem
+        size = (num_stages - 1) * (x_size + w_size)
+    return size > smem_size
 
 
 @triton.autotune(

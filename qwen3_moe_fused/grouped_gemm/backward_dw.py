@@ -29,7 +29,7 @@ def exceeds_smem_capacity(
     if num_stages <= 1:
         size = max(x_size, y_size)
     else:
-        # (num_stages - 1) larger tiles will be cached in smem
+        # (num_stages - 1) stages of the larger tile will be cached in smem
         size = min(x_size, y_size) + (num_stages - 1) * max(x_size, y_size)
     return size > smem_size
 
