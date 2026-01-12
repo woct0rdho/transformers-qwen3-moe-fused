@@ -1,6 +1,7 @@
 accelerate
 bitsandbytes
 datasets
+gguf
 huggingface-hub
 peft
 safetensors

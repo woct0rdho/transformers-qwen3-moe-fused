@@ -6,10 +6,13 @@ from typing import Optional, Union
 
 import torch
 from peft import LoraConfig
+from peft.tuners.lora.layer import Embedding as LoraEmbedding
+from peft.tuners.lora.layer import Linear as LoraLinear
 from peft.tuners.lora.layer import LoraLayer
 from torch import nn
 
 from .modular_qwen3_moe_fused import MoeFusedLinear, moe_fused_kaiming_uniform_
+from .quantize_gguf.layer import GGUFEmbedding, GGUFLinear, GGUFMoeFusedLinear
 
 
 class LoraMoeFusedLinear(nn.Module, LoraLayer):
@@ -149,6 +152,13 @@ def patch_lora_config(*, rank_pattern: Optional[dict[str, int]] = None) -> None:
     @functools.wraps(old_init)
     def new_init(self, *args, **kwargs):
         old_init(self, *args, **kwargs)
-        self._register_custom_module({MoeFusedLinear: LoraMoeFusedLinear})
+        self._register_custom_module(
+            {
+                MoeFusedLinear: LoraMoeFusedLinear,
+                GGUFEmbedding: LoraEmbedding,
+                GGUFLinear: LoraLinear,
+                GGUFMoeFusedLinear: LoraMoeFusedLinear,
+            }
+        )
 
     LoraConfig.__init__ = new_init
