@@ -1,6 +1,7 @@
 # y[m, n] = sum_k w[s[m], n, k] * x[m, k]
 # Currently this is slower than the unfused dequant + linear when M is large
 
+from functools import partial
 from typing import Optional
 
 import torch
@@ -14,11 +15,12 @@ from ..autotuning import (
     get_num_sms,
     prune_configs,
 )
+from ..forward import exceeds_smem_capacity, is_int_tensor
 
 
 @triton.autotune(
     configs=get_autotune_configs(),
-    prune_configs_by={"early_config_prune": prune_configs},
+    prune_configs_by={"early_config_prune": partial(prune_configs, exceeds_smem_capacity)},
     key=get_autotune_keys(),
 )
 @triton.jit
@@ -70,7 +72,6 @@ def _grouped_gemm_forward_4bit_kernel(
                 tile_idx = tidx - processed_tiles
 
                 # Output tile for this thread block for this expert group
-                # TODO: Check if L2 cache re-use for this order is optimal
                 tile_m_idx = tile_idx % num_m_tiles
                 tile_n_idx = tile_idx // num_m_tiles
 
@@ -120,16 +121,6 @@ def _grouped_gemm_forward_4bit_kernel(
 
             # Update the total tiles count for the next expert group
             processed_tiles += num_tiles_per_expert
-
-
-def is_int_tensor(x: torch.Tensor) -> bool:
-    return x.dtype in {
-        torch.uint8,
-        torch.int8,
-        torch.int16,
-        torch.int32,
-        torch.int64,
-    }
 
 
 def grouped_gemm_forward_4bit(

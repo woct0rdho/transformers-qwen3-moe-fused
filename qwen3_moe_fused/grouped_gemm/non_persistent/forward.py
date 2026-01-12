@@ -1,5 +1,6 @@
 # y[m, n] = sum_k w[s[m], n, k] * x[m, k]
 
+from functools import partial
 from typing import Optional
 
 import torch
@@ -11,11 +12,12 @@ from ..autotuning import (
     get_autotune_keys,
     prune_configs,
 )
+from ..forward import exceeds_smem_capacity, is_int_tensor
 
 
 @triton.autotune(
     configs=get_autotune_configs(),
-    prune_configs_by={"early_config_prune": prune_configs},
+    prune_configs_by={"early_config_prune": partial(prune_configs, exceeds_smem_capacity)},
     key=get_autotune_keys(),
 )
 @triton.jit
@@ -56,7 +58,6 @@ def _grouped_gemm_forward_kernel(
         return
 
     # Output tile for this thread block for this expert group
-    # TODO: Check if L2 cache re-use for this order is optimal
     tile_m_idx = tile_idx % num_m_tiles
     tile_n_idx = tile_idx // num_m_tiles
 
@@ -86,16 +87,6 @@ def _grouped_gemm_forward_kernel(
     y = accumulator.to(y_ptr.dtype.element_ty)
     y_ptrs = y_ptr + stride_ym * offs_m[:, None] + stride_yn * offs_n[None, :]
     tl.store(y_ptrs, y, mask=mask_m[:, None] & mask_n[None, :])
-
-
-def is_int_tensor(x: torch.Tensor) -> bool:
-    return x.dtype in {
-        torch.uint8,
-        torch.int8,
-        torch.int16,
-        torch.int32,
-        torch.int64,
-    }
 
 
 def grouped_gemm_forward(
@@ -130,8 +121,8 @@ def grouped_gemm_forward(
     max_m = m_sizes.max().item()
 
     def grid(META):
-        bm = META['BLOCK_SIZE_M']
-        bn = META['BLOCK_SIZE_N']
+        bm = META["BLOCK_SIZE_M"]
+        bn = META["BLOCK_SIZE_N"]
         max_m_blocks = triton.cdiv(max_m, bm)
         num_n_tiles = triton.cdiv(N, bn)
         # Grid: (Max Tiles per Expert, Number of Experts)

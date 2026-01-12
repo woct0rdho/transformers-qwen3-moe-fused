@@ -84,7 +84,6 @@ def _grouped_gemm_forward_kernel(
                 tile_idx = tidx - processed_tiles
 
                 # Output tile for this thread block for this expert group
-                # TODO: Check if L2 cache re-use for this order is optimal
                 tile_m_idx = tile_idx % num_m_tiles
                 tile_n_idx = tile_idx // num_m_tiles
 
