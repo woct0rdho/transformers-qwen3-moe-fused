@@ -24,6 +24,10 @@ def exceeds_smem_capacity(
     dtype: torch.dtype,
     smem_size: int,
 ) -> bool:
+    # Strix Halo crashes with some configs
+    if torch.version.hip and (BLOCK_SIZE_M >= 128 or BLOCK_SIZE_N >= 128 or BLOCK_SIZE_K >= 128):
+        return True
+
     x_size = BLOCK_SIZE_M * BLOCK_SIZE_K * dtype.itemsize
     w_size = BLOCK_SIZE_N * BLOCK_SIZE_K * dtype.itemsize
     if num_stages <= 1:

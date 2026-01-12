@@ -6,19 +6,15 @@ import torch
 import triton
 
 
+DEFAULT_M_BLOCK_SIZES = [16, 32, 64, 128, 256, 512, 1024]
+DEFAULT_N_BLOCK_SIZES = [16, 32, 64, 128, 256, 512, 1024]
+DEFAULT_K_BLOCK_SIZES = [16, 32, 64, 128, 256, 512, 1024]
+DEFAULT_NUM_WARPS = [4, 8]
 if torch.version.hip:
-    DEFAULT_M_BLOCK_SIZES = [32, 64, 128]
-    DEFAULT_N_BLOCK_SIZES = [32, 64, 128]
-    DEFAULT_K_BLOCK_SIZES = [32, 64, 128]
-    DEFAULT_NUM_WARPS = [4, 8]
     DEFAULT_NUM_STAGES = [1, 2, 3]
     # Strix Halo and RDNA benefit significantly from having multiple active blocks per CU
     GRID_FACTOR = 64
 else:
-    DEFAULT_M_BLOCK_SIZES = [16, 32, 64, 128, 256]
-    DEFAULT_N_BLOCK_SIZES = [16, 32, 64, 128, 256]
-    DEFAULT_K_BLOCK_SIZES = [16, 32, 64, 128, 256]
-    DEFAULT_NUM_WARPS = [4, 8]
     DEFAULT_NUM_STAGES = [3, 4, 5, 6]
     GRID_FACTOR = 1
 
