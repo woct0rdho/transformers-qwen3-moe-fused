@@ -1,32 +1,15 @@
 # Modified from https://github.com/city96/ComfyUI-GGUF/blob/795e45156ece99afbc3efef911e63fcb46e6a20d/dequant.py
 # Reference implementation at https://github.com/ggml-org/llama.cpp/blob/e54d41befcc1575f4c898c5ff4ef43970cead75f/gguf-py/gguf/quants.py
 
+from functools import partial
+
 import gguf
 import numpy as np
 import torch
 from gguf.quants import IQ1_M, IQ1_S, IQ2_S, IQ2_XXS, IQ3_S, IQ3_XXS
 
 
-# IQ quants
-KVALUES = torch.tensor([-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113], dtype=torch.int8)
-
-IQ3_S.init_grid()
-GRID_IQ3_S = torch.from_numpy(IQ3_S.grid).squeeze()
-
-IQ3_XXS.init_grid()
-GRID_IQ3_XXS = torch.from_numpy(IQ3_XXS.grid).squeeze()
-
-IQ2_S.init_grid()
-GRID_IQ2_S = torch.from_numpy(IQ2_S.grid).squeeze()
-
-IQ2_XXS.init_grid()
-GRID_IQ2_XXS = torch.from_numpy(IQ2_XXS.grid).squeeze()
-KSIGNS_IQ2_XXS = torch.from_numpy(np.frombuffer(IQ2_XXS.ksigns, dtype=np.uint8).copy())
-
-IQ1_M.init_grid()  # Uses same grid as IQ1_S internally
-
-IQ1_S.init_grid()
-GRID_IQ1_S = torch.from_numpy(IQ1_S.grid).squeeze()
+torch._dynamo.config.recompile_limit = max(torch._dynamo.config.recompile_limit, 64)
 
 TORCH_COMPATIBLE_QTYPES = {
     gguf.GGMLQuantizationType.F32: torch.float32,
@@ -41,14 +24,20 @@ def dequantize(data, qtype, oshape, dtype=None):
         return data.to(dtype)
 
     block_size, type_size = gguf.GGML_QUANT_SIZES[qtype]
-    dequantize_blocks = dequantize_functions[qtype]
+    dequantize_function = dequantize_functions[qtype]
+    return dequantize_function(data, block_size, type_size, dtype).view(oshape)
 
-    rows = data.reshape((-1, data.shape[-1])).view(torch.uint8)
 
-    n_blocks = rows.numel() // type_size
-    blocks = rows.reshape((n_blocks, type_size))
-    blocks = dequantize_blocks(blocks, block_size, type_size, dtype)
-    return blocks.reshape(oshape)
+def wrap_dequantize_function(func):
+    @partial(torch.compile, fullgraph=True, mode="max-autotune-no-cudagraphs")
+    @torch.no_grad()
+    def _func(data, block_size, type_size, dtype):
+        rows = data.reshape((-1, data.shape[-1])).view(torch.uint8)
+        n_blocks = rows.numel() // type_size
+        blocks = rows.reshape((n_blocks, type_size))
+        return func(blocks, block_size, type_size, dtype)
+
+    return _func
 
 
 def to_uint32(x):
@@ -60,6 +49,12 @@ def to_uint32(x):
 def to_uint16(x):
     x = x.view(torch.uint8).to(torch.int32)
     return (x[:, 0] | x[:, 1] << 8).unsqueeze(1)
+
+
+# x.view(torch.float16) and x.contiguous().view(torch.float16) have problem with torch.compile in some cases
+def view_float16(x: torch.Tensor) -> torch.Tensor:
+    x = x.view(torch.uint8).to(torch.int16)
+    return (x[:, 0] | x[:, 1] << 8).unsqueeze(1).view(torch.float16)
 
 
 def split_block_dims(blocks, *args):
@@ -176,7 +171,7 @@ def dequantize_blocks_Q6_K(blocks, block_size, type_size, dtype=None):
     ) = split_block_dims(blocks, QK_K // 2, QK_K // 4, QK_K // 16)
 
     scales = scales.view(torch.int8).to(dtype)
-    d = d.view(torch.float16).to(dtype)
+    d = view_float16(d).to(dtype)
     d = (d * scales).reshape((n_blocks, QK_K // 16, 1))
 
     ql = ql.reshape((n_blocks, -1, 1, 64)) >> torch.tensor([0, 4], device=d.device, dtype=torch.uint8).reshape(
@@ -243,7 +238,7 @@ def dequantize_blocks_Q3_K(blocks, block_size, type_size, dtype=None):
     n_blocks = blocks.shape[0]
 
     hmask, qs, scales, d = split_block_dims(blocks, QK_K // 8, QK_K // 4, 12)
-    d = d.view(torch.float16).to(dtype)
+    d = view_float16(d).to(dtype)
 
     lscales, hscales = scales[:, :8], scales[:, 8:]
     lscales = lscales.reshape((n_blocks, 1, 8)) >> torch.tensor([0, 4], device=d.device, dtype=torch.uint8).reshape(
@@ -276,8 +271,8 @@ def dequantize_blocks_Q2_K(blocks, block_size, type_size, dtype=None):
     n_blocks = blocks.shape[0]
 
     scales, qs, d, dmin = split_block_dims(blocks, QK_K // 16, QK_K // 4, 2)
-    d = d.view(torch.float16).to(dtype)
-    dmin = dmin.view(torch.float16).to(dtype)
+    d = view_float16(d).to(dtype)
+    dmin = view_float16(dmin).to(dtype)
 
     # (n_blocks, 16, 1)
     dl = (d * (scales & 0xF)).reshape((n_blocks, QK_K // 16, 1))
@@ -290,6 +285,28 @@ def dequantize_blocks_Q2_K(blocks, block_size, type_size, dtype=None):
     qs = dl * qs - ml
 
     return qs.reshape((n_blocks, -1))
+
+
+# IQ quants #
+KVALUES = torch.tensor([-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113], dtype=torch.int8)
+
+IQ3_S.init_grid()
+GRID_IQ3_S = torch.from_numpy(IQ3_S.grid).squeeze()
+
+IQ3_XXS.init_grid()
+GRID_IQ3_XXS = torch.from_numpy(IQ3_XXS.grid).squeeze()
+
+IQ2_S.init_grid()
+GRID_IQ2_S = torch.from_numpy(IQ2_S.grid).squeeze()
+
+IQ2_XXS.init_grid()
+GRID_IQ2_XXS = torch.from_numpy(IQ2_XXS.grid).squeeze()
+KSIGNS_IQ2_XXS = torch.from_numpy(np.frombuffer(IQ2_XXS.ksigns, dtype=np.uint8).copy())
+
+IQ1_M.init_grid()  # Uses same grid as IQ1_S internally
+
+IQ1_S.init_grid()
+GRID_IQ1_S = torch.from_numpy(IQ1_S.grid).squeeze()
 
 
 def dequantize_blocks_IQ4_NL(blocks, block_size, type_size, dtype=None):
@@ -315,20 +332,21 @@ def dequantize_blocks_IQ4_XS(blocks, block_size, type_size, dtype=None):
     d = d.view(torch.float16).to(dtype)
     scales_h = to_uint16(scales_h)
 
-    shift_a = torch.tensor([0, 4], device=d.device, dtype=torch.uint8).reshape((1, 1, 2))
-    shift_b = torch.tensor([2 * i for i in range(QK_K // 32)], device=d.device, dtype=torch.uint8).reshape((1, -1, 1))
+    # ComfyUI-GGUF uses shift_a and shift_b but it has problem with torch.compile
+    # Unpack scales_l (N, 4) -> (N, 4, 2) -> (N, 8) interleaved
+    scales_l = torch.stack([scales_l & 0x0F, (scales_l >> 4) & 0x0F], dim=-1).reshape(n_blocks, -1)
 
-    scales_l = scales_l.reshape((n_blocks, -1, 1)) >> shift_a.reshape((1, 1, 2))
-    scales_h = scales_h.reshape((n_blocks, -1, 1)) >> shift_b.reshape((1, -1, 1))
-
-    scales_l = scales_l.reshape((n_blocks, -1)) & 0x0F
-    scales_h = scales_h.reshape((n_blocks, -1)).to(torch.uint8) & 0x03
+    # Unpack scales_h (N, 1) int32 -> (N, 8) vectorized
+    shifts = torch.arange(0, 16, 2, device=d.device, dtype=torch.int32)
+    scales_h = (scales_h >> shifts) & 0x03
+    scales_h = scales_h.to(torch.uint8)
 
     scales = (scales_l | (scales_h << 4)).to(torch.int8) - 32
     dl = (d * scales.to(dtype)).reshape((n_blocks, -1, 1))
 
-    qs = qs.reshape((n_blocks, -1, 1, 16)) >> shift_a.reshape((1, 1, 2, 1))
-    qs = qs.reshape((n_blocks, -1, 32, 1)) & 0x0F
+    # Unpack qs (N, 128) -> (N, 8, 16) -> (N, 8, 2, 16) -> (N, 256)
+    qs = qs.reshape(n_blocks, 8, 16)
+    qs = torch.stack([qs & 0x0F, (qs >> 4) & 0x0F], dim=2).reshape(n_blocks, -1)
 
     kvalues = KVALUES.to(qs.device).expand(*qs.shape[:-1], 16)
     qs = torch.gather(kvalues, dim=-1, index=qs.to(torch.int64)).reshape((n_blocks, -1, 32))
@@ -468,7 +486,7 @@ def dequantize_blocks_IQ2_XXS(blocks, block_size, type_size, dtype=None):
     signs = signs.reshape(n_blocks, 8, 4, 8)
 
     # grid
-    indices = q0.unsqueeze(-1).view(torch.uint8).reshape(n_blocks, 32)
+    indices = q0.contiguous().view(torch.uint8)
     grid_val = GRID_IQ2_XXS.to(dtype=dtype, device=d.device)[indices.to(torch.long)]
     grid_val = grid_val.reshape(n_blocks, 8, 4, 8)
 
@@ -592,3 +610,5 @@ dequantize_functions = {
     gguf.GGMLQuantizationType.IQ1_M: dequantize_blocks_IQ1_M,
     gguf.GGMLQuantizationType.IQ1_S: dequantize_blocks_IQ1_S,
 }
+
+dequantize_functions = {k: wrap_dequantize_function(v) for k, v in dequantize_functions.items()}
