@@ -9,24 +9,60 @@ import helion.language as hl
 import torch
 
 
-# @helion.kernel()
-@helion.kernel(
-    config=helion.Config(
-        block_sizes=[32, 64, 16],
-        indexing=["pointer", "pointer", "pointer", "pointer", "pointer"],
-        load_eviction_policies=["first", "", "", "first"],
-        loop_orders=[[1, 0]],
-        num_stages=6,
-        num_warps=4,
-        pid_type="flat",
-        range_flattens=[None, None, False, False],
-        range_multi_buffers=[None, None, True, None],
-        range_num_stages=[0, 3, 0, 3],
-        range_unroll_factors=[0, 1, 2, 1],
-        range_warp_specializes=[],
-    ),
-    static_shapes=True,
-)
+if torch.version.hip:
+    configs = [
+        # Strix Halo, large M
+        helion.Config(
+            block_sizes=[256, 64, 128],
+            indexing=["tensor_descriptor", "pointer", "tensor_descriptor", "tensor_descriptor", "pointer"],
+            load_eviction_policies=["", "last", "last", "first"],
+            loop_orders=[[0, 1]],
+            num_stages=2,
+            num_warps=32,
+            pid_type="persistent_blocked",
+            range_flattens=[True, None, None, None],
+            range_multi_buffers=[False, False, False, False],
+            range_num_stages=[3, 1, 1, 1],
+            range_unroll_factors=[1, 3, 4, 4],
+            range_warp_specializes=[True, None, None, None],
+        ),
+    ]
+else:
+    configs = [
+        # RTX 3090, small M
+        helion.Config(
+            block_sizes=[32, 64, 16],
+            indexing=["pointer", "pointer", "pointer", "pointer", "pointer"],
+            load_eviction_policies=["first", "", "", "first"],
+            loop_orders=[[1, 0]],
+            num_stages=6,
+            num_warps=4,
+            pid_type="flat",
+            range_flattens=[None, None, False, False],
+            range_multi_buffers=[None, None, True, None],
+            range_num_stages=[0, 3, 0, 3],
+            range_unroll_factors=[0, 1, 2, 1],
+            range_warp_specializes=[],
+        ),
+        # RTX 3090, large M
+        helion.Config(
+            block_sizes=[128, 256, 64],
+            indexing=["pointer", "pointer", "block_ptr", "block_ptr", "pointer"],
+            load_eviction_policies=["last", "last", "last", "first"],
+            loop_orders=[[1, 0]],
+            num_stages=8,
+            num_warps=8,
+            pid_type="flat",
+            range_flattens=[None, False, False, None],
+            range_multi_buffers=[None, False, False, True],
+            range_num_stages=[0, 4, 1, 3],
+            range_unroll_factors=[0, 1, 4, 0],
+            range_warp_specializes=[],
+        ),
+    ]
+
+
+@helion.kernel(configs=configs, static_shapes=True)
 def _grouped_gemm_forward_kernel(
     x: torch.Tensor, w: torch.Tensor, m_offsets: torch.Tensor, dtype: torch.dtype
 ) -> torch.Tensor:
@@ -48,9 +84,6 @@ def _grouped_gemm_forward_kernel(
                 y[m_start + tile_m.index, tile_n] = acc.to(y.dtype)
 
     return y
-
-
-# from .kernel_generated import _grouped_gemm_forward_kernel
 
 
 def grouped_gemm_forward(
