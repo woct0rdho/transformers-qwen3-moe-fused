@@ -143,7 +143,11 @@ def is_int_tensor(x: torch.Tensor) -> bool:
 
 
 def grouped_gemm_forward(
-    x: torch.Tensor, w: torch.Tensor, m_sizes: torch.Tensor, dtype: Optional[torch.dtype] = None
+    x: torch.Tensor,
+    w: torch.Tensor,
+    m_sizes: torch.Tensor,
+    dtype: Optional[torch.dtype] = None,
+    transpose_w: bool = False,
 ) -> torch.Tensor:
     assert x.is_cuda
     assert w.device == x.device
@@ -155,9 +159,13 @@ def grouped_gemm_forward(
     assert x.ndim == 2
     assert w.ndim == 3
     assert m_sizes.ndim == 1
-    M, K = x.shape
-    E, N, _ = w.shape
-    assert w.shape[2] == K
+    M, _ = x.shape
+    E, N, K = w.shape
+    stride_we, stride_wn, stride_wk = w.stride()
+    if transpose_w:
+        N, K = K, N
+        stride_wn, stride_wk = stride_wk, stride_wn
+    assert x.shape[1] == K
     assert m_sizes.numel() == E
 
     if dtype is None:
@@ -184,9 +192,9 @@ def grouped_gemm_forward(
             # Strides
             x.stride(0),
             x.stride(1),
-            w.stride(0),
-            w.stride(1),
-            w.stride(2),
+            stride_we,
+            stride_wn,
+            stride_wk,
             y.stride(0),
             y.stride(1),
         )

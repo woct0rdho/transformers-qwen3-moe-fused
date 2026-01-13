@@ -50,7 +50,6 @@ from bitsandbytes.functional import dequantize_4bit
 
 from ..grouped_gemm.backward_dw import grouped_gemm_backward_dw
 from ..grouped_gemm.forward import grouped_gemm_forward
-from ..grouped_gemm.forward_transposed import grouped_gemm_forward_transposed
 from .silu_mul import silu_mul_backward_inplace, silu_mul_forward
 
 
@@ -113,7 +112,7 @@ class FastLora(torch.autograd.Function):
         x, Ag, Bg, Au, Bu, Aw, Bw, e, g = ctx.saved_tensors
 
         def vm(_x, _w):
-            return grouped_gemm_forward_transposed(_x, _w, m_sizes, x.dtype)
+            return grouped_gemm_forward(_x, _w, m_sizes, x.dtype, transpose_w=True)
 
         def vv(_y, _x):
             return grouped_gemm_backward_dw(_x, _y, m_sizes, x.dtype)

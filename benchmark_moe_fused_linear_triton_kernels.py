@@ -70,11 +70,7 @@ def benchmark(N, provider):
     expt_data = compute_expt_data_torch(m_sizes_int32, num_experts, N)
 
     routing_data = RoutingData(
-        gate_scal=None,
-        expt_hist=m_sizes_int32,
-        n_expts_tot=num_experts,
-        n_expts_act=1,
-        expt_data=expt_data
+        gate_scal=None, expt_hist=m_sizes_int32, n_expts_tot=num_experts, n_expts_act=1, expt_data=expt_data
     )
 
     quantiles = [0.5, 0.2, 0.8]
