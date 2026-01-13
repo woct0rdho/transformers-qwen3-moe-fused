@@ -69,6 +69,7 @@ def _grouped_gemm_forward_kernel(
     BLOCK_SIZE_M: tl.constexpr = 64,
     BLOCK_SIZE_N: tl.constexpr = 64,
     BLOCK_SIZE_K: tl.constexpr = 64,
+    LOOP_ORDER: tl.constexpr = 0,
 ) -> None:
     tidx = tl.program_id(0)
     m_end = 0
@@ -90,8 +91,12 @@ def _grouped_gemm_forward_kernel(
                 tile_idx = tidx - processed_tiles
 
                 # Output tile for this thread block for this expert group
-                tile_m_idx = tile_idx % num_m_tiles
-                tile_n_idx = tile_idx // num_m_tiles
+                if LOOP_ORDER == 0:
+                    tile_m_idx = tile_idx % num_m_tiles
+                    tile_n_idx = tile_idx // num_m_tiles
+                else:
+                    tile_m_idx = tile_idx // num_n_tiles
+                    tile_n_idx = tile_idx % num_n_tiles
 
                 offs_k = tl.arange(0, BLOCK_SIZE_K)
 

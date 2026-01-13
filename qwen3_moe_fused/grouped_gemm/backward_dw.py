@@ -65,6 +65,7 @@ def _grouped_gemm_backward_dw_kernel(
     BLOCK_SIZE_M: tl.constexpr = 64,
     BLOCK_SIZE_N: tl.constexpr = 64,
     BLOCK_SIZE_K: tl.constexpr = 64,
+    LOOP_ORDER: tl.constexpr = 0,
 ) -> None:
     tidx = tl.program_id(0)
 
@@ -79,8 +80,12 @@ def _grouped_gemm_backward_dw_kernel(
         tile_idx = work_idx % num_tiles_per_expert
 
         # Output tile index
-        tile_n_idx = tile_idx % num_n_tiles
-        tile_k_idx = tile_idx // num_n_tiles
+        if LOOP_ORDER == 0:
+            tile_n_idx = tile_idx % num_n_tiles
+            tile_k_idx = tile_idx // num_n_tiles
+        else:
+            tile_n_idx = tile_idx // num_k_tiles
+            tile_k_idx = tile_idx % num_k_tiles
 
         m_start = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
         m_end = tl.load(m_offsets_ptr + expert_idx + 1).to(tl.int32)

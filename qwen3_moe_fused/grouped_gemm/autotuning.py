@@ -6,9 +6,10 @@ import torch
 import triton
 
 
-DEFAULT_M_BLOCK_SIZES = [16, 32, 64, 128, 256, 512, 1024]
-DEFAULT_N_BLOCK_SIZES = [16, 32, 64, 128, 256, 512, 1024]
-DEFAULT_K_BLOCK_SIZES = [16, 32, 64, 128, 256, 512, 1024]
+DEFAULT_BLOCK_SIZES_M = [16, 32, 64, 128, 256, 512, 1024]
+DEFAULT_BLOCK_SIZES_N = [16, 32, 64, 128, 256, 512, 1024]
+DEFAULT_BLOCK_SIZES_K = [16, 32, 64, 128, 256, 512, 1024]
+DEFAULT_LOOP_ORDERS = [0, 1]
 DEFAULT_NUM_WARPS = [4, 8]
 if torch.version.hip:
     DEFAULT_NUM_STAGES = [1, 2, 3]
@@ -25,15 +26,18 @@ def get_num_sms() -> int:
 
 def get_autotune_configs() -> list[triton.Config]:
     configs = []
-    for m, n, k, w, s in product(
-        DEFAULT_M_BLOCK_SIZES,
-        DEFAULT_N_BLOCK_SIZES,
-        DEFAULT_K_BLOCK_SIZES,
+    for m, n, k, o, w, s in product(
+        DEFAULT_BLOCK_SIZES_M,
+        DEFAULT_BLOCK_SIZES_N,
+        DEFAULT_BLOCK_SIZES_K,
+        DEFAULT_LOOP_ORDERS,
         DEFAULT_NUM_WARPS,
         DEFAULT_NUM_STAGES,
     ):
         configs.append(
-            triton.Config({"BLOCK_SIZE_M": m, "BLOCK_SIZE_N": n, "BLOCK_SIZE_K": k}, num_warps=w, num_stages=s)
+            triton.Config(
+                {"BLOCK_SIZE_M": m, "BLOCK_SIZE_N": n, "BLOCK_SIZE_K": k, "LOOP_ORDER": o}, num_warps=w, num_stages=s
+            )
         )
     return configs
 
@@ -58,9 +62,9 @@ def _common_prune_criteria(smem_criteria: Callable, config: triton.Config, kwarg
     K = kwargs["K"]
     num_experts = kwargs["NUM_EXPERTS"]
     tokens_per_expert = M // num_experts
-    max_block_size_M = max(tokens_per_expert * 2, DEFAULT_M_BLOCK_SIZES[0])
-    max_block_size_N = max(N, DEFAULT_N_BLOCK_SIZES[0])
-    max_block_size_K = max(K, DEFAULT_K_BLOCK_SIZES[0])
+    max_block_size_M = max(tokens_per_expert * 2, DEFAULT_BLOCK_SIZES_M[0])
+    max_block_size_N = max(N, DEFAULT_BLOCK_SIZES_N[0])
+    max_block_size_K = max(K, DEFAULT_BLOCK_SIZES_K[0])
     if BLOCK_SIZE_M > max_block_size_M:
         return True
     if BLOCK_SIZE_N > max_block_size_N:
