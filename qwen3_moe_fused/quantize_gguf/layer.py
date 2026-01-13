@@ -49,7 +49,7 @@ class GGUFEmbedding(nn.Module):
         if w.shape == expected:
             pass
         elif w.shape == (self.embedding_dim, self.num_embeddings):
-            w = w.t()
+            w = w.T
         elif w.numel() == np.prod(expected):
             w = w.view(expected)
         else:
@@ -96,7 +96,7 @@ class GGUFLinear(nn.Module):
         if w.shape == expected:
             pass
         elif w.shape == (self.in_features, self.out_features):
-            w = w.t()
+            w = w.T
         elif w.numel() == self.out_features * self.in_features:
             w = w.view(expected)
         else:

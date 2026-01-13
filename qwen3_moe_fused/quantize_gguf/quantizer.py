@@ -172,7 +172,7 @@ def load_gguf_to_model(
             if w.shape == output_embeddings.weight.shape:
                 pass
             elif w.shape == (output_embeddings.weight.shape[1], output_embeddings.weight.shape[0]):
-                w = w.t()
+                w = w.T
 
             with torch.no_grad():
                 output_embeddings.weight.data = w

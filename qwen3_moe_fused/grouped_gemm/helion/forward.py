@@ -1,0 +1,74 @@
+# y[m, n] = sum_k w[s[m], n, k] * x[m, k]
+#
+# On Windows, we need to set the environment variable HELION_AUTOTUNE_PRECOMPILE=spawn
+
+from typing import Optional
+
+import helion
+import helion.language as hl
+import torch
+
+
+# @helion.kernel()
+@helion.kernel(
+    config=helion.Config(
+        block_sizes=[32, 64, 16],
+        indexing=["pointer", "pointer", "pointer", "pointer", "pointer"],
+        load_eviction_policies=["first", "", "", "first"],
+        loop_orders=[[1, 0]],
+        num_stages=6,
+        num_warps=4,
+        pid_type="flat",
+        range_flattens=[None, None, False, False],
+        range_multi_buffers=[None, None, True, None],
+        range_num_stages=[0, 3, 0, 3],
+        range_unroll_factors=[0, 1, 2, 1],
+        range_warp_specializes=[],
+    ),
+    static_shapes=True,
+)
+def _grouped_gemm_forward_kernel(
+    x: torch.Tensor, w: torch.Tensor, m_offsets: torch.Tensor, dtype: torch.dtype
+) -> torch.Tensor:
+    M, _ = x.shape
+    E, N, K = w.shape
+
+    y = torch.empty((M, N), device=x.device, dtype=dtype)
+    for expert_idx in hl.grid(E):
+        m_start = m_offsets[expert_idx]
+        m_end = m_offsets[expert_idx + 1]
+        m_size = m_end - m_start
+        if m_size > 0:
+            for tile_m, tile_n in hl.tile([m_size, N]):
+                acc = hl.zeros((tile_m, tile_n), dtype=torch.float32)
+                for tile_k in hl.tile(K):
+                    x_blk = x[m_start + tile_m.index, tile_k]
+                    w_blk = w[expert_idx, tile_n, tile_k]
+                    acc = torch.addmm(acc, x_blk, w_blk.T)
+                y[m_start + tile_m.index, tile_n] = acc.to(y.dtype)
+
+    return y
+
+
+# from .kernel_generated import _grouped_gemm_forward_kernel
+
+
+def grouped_gemm_forward(
+    x: torch.Tensor, w: torch.Tensor, m_sizes: torch.Tensor, dtype: Optional[torch.dtype] = None
+) -> torch.Tensor:
+    assert x.ndim == 2
+    assert w.ndim == 3
+    assert m_sizes.ndim == 1
+    M, _ = x.shape
+    E, N, K = w.shape
+    assert x.shape[1] == K
+    assert m_sizes.numel() == E
+
+    if dtype is None:
+        dtype = x.dtype
+
+    m_offsets = torch.zeros(E + 1, device=m_sizes.device, dtype=m_sizes.dtype)
+    m_offsets[1:] = torch.cumsum(m_sizes, dim=0)
+    m_offsets = m_offsets.to(torch.int32)
+
+    return _grouped_gemm_forward_kernel(x, w, m_offsets, dtype)

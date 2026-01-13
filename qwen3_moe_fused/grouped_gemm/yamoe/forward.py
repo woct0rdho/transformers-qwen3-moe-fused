@@ -12,9 +12,9 @@ def grouped_gemm_forward(
     assert x.ndim == 2
     assert w.ndim == 3
     assert m_sizes.ndim == 1
-    M, K = x.shape
-    E, N, _ = w.shape
-    assert w.shape[2] == K
+    M, _ = x.shape
+    E, N, K = w.shape
+    assert x.shape[1] == K
     assert m_sizes.numel() == E
 
     if dtype is None:
