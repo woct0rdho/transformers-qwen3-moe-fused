@@ -10,7 +10,7 @@ from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedModel
 from test_utils import get_rtol_atol
 
 
-os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
+os.environ["AUTOTUNE_DISABLE"] = "1"
 
 
 def main():

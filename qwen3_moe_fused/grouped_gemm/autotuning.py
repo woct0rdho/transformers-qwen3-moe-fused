@@ -99,6 +99,11 @@ def prune_configs(smem_criteria: Callable, configs: list[triton.Config], args, *
         if _common_prune_criteria(smem_criteria, config, args):
             continue
         pruned_configs.append(config)
+
+    if os.getenv("AUTOTUNE_DISABLE", "0") == "1":
+        # Return one config in the middle
+        return [pruned_configs[len(pruned_configs) // 2]]
+
     return pruned_configs
 
 

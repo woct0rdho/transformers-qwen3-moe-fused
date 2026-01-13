@@ -11,6 +11,7 @@ from qwen3_moe_fused.quantize_gguf.dequant import dequantize, dequantize_functio
 from test_utils import get_rtol_atol
 
 
+# Quantize using GGML C API
 # Modified from https://github.com/ggml-org/llama.cpp/blob/e54d41befcc1575f4c898c5ff4ef43970cead75f/gguf-py/tests/test_quants.py
 class ggml_init_params(ctypes.Structure):
     _fields_ = [
