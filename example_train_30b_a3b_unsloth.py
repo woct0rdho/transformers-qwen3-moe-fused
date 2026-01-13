@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 #
 # Example to train a LoRA on the fused and quantized version of Qwen3-30B-A3B using Unsloth
+# 24 GB VRAM is recommended
+#
+# Important: We cache autotuned Triton kernels by default. If you did some small-scale tests, then you should
+# clear the Triton cache and the TorchInductor cache before the actual training
 
 import os
 
