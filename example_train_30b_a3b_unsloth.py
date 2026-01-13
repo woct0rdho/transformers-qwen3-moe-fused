@@ -10,6 +10,7 @@ from unsloth import FastModel
 from datasets import load_dataset
 from trl import SFTConfig, SFTTrainer
 
+from qwen3_moe_fused.compile_utils import compile_layers
 from qwen3_moe_fused.fast_lora import patch_Qwen3MoeFusedSparseMoeBlock_forward
 from qwen3_moe_fused.lora import patch_lora_config
 from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM
@@ -59,6 +60,8 @@ def main():
         use_gradient_checkpointing="unsloth",
         random_state=3407,
     )
+
+    compile_layers(model)
 
     dataset = load_dataset("stanfordnlp/imdb", split="train")
 
