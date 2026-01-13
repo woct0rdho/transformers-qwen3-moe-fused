@@ -22,6 +22,7 @@ _autotune_configs = [
 @triton.autotune(
     configs=_autotune_configs,
     key=[],
+    cache_results=True,
 )
 @triton.jit
 def _silu_mul_forward_kernel(
@@ -48,6 +49,7 @@ def _silu_mul_forward_kernel(
 @triton.autotune(
     configs=_autotune_configs,
     key=[],
+    cache_results=True,
 )
 @triton.jit
 def _silu_mul_backward_kernel(
@@ -84,6 +86,7 @@ def _silu_mul_backward_kernel(
     configs=_autotune_configs,
     key=[],
     restore_value=["dh_ptr", "e_ptr", "g_ptr"],
+    cache_results=True,
 )
 @triton.jit
 def _silu_mul_backward_inplace_kernel(

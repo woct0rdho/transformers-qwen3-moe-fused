@@ -17,8 +17,9 @@ from ..forward import exceeds_smem_capacity, is_int_tensor
 
 @triton.autotune(
     configs=get_autotune_configs(),
-    prune_configs_by={"early_config_prune": partial(prune_configs, exceeds_smem_capacity)},
     key=get_autotune_keys(),
+    prune_configs_by={"early_config_prune": partial(prune_configs, exceeds_smem_capacity)},
+    cache_results=True,
 )
 @triton.jit
 def _grouped_gemm_forward_kernel(
