@@ -2,7 +2,7 @@
 
 **Update:** Transformers 5 will soon be released and it supports fused MoE kernels. We will implement the LoRA in PEFT. This repo mainly supports Transformers 4.
 
-The Qwen3 MoE model (and all other MoE models) in HF Transformers is notoriously slow, because it uses a [for loop](https://github.com/huggingface/transformers/blob/bdf5fb70aa11782cce22027d76879f71f4e41c1e/src/transformers/models/qwen3_moe/modular_qwen3_moe.py#L103) to access the experts. The purpose of this repo is to fine-tune Qwen3-30B-A3B on a single GPU with 24GB VRAM and achieve high throughput. The implementation is compatible with the HF Transformers ecosystem, such as LoRA, bitsandbytes 4-bit quantization, and Unsloth. See [`example_train_30b_a3b_unsloth.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/example_train_30b_a3b_unsloth.py) for the usage.
+The Qwen3 MoE model (and all other MoE models) in HF Transformers is notoriously slow, because it uses a [for loop](https://github.com/huggingface/transformers/blob/bdf5fb70aa11782cce22027d76879f71f4e41c1e/src/transformers/models/qwen3_moe/modular_qwen3_moe.py#L103) to access the experts. The purpose of this repo is to fine-tune Qwen3-30B-A3B on a single GPU with 24 or even 16 GB VRAM and achieve high throughput. The implementation is compatible with the HF Transformers ecosystem, such as LoRA, bitsandbytes (bnb) 4-bit quantization, GGUF, and Unsloth. See [`example_train_30b_a3b_unsloth.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/example_train_30b_a3b_unsloth.py) for the usage.
 
 ## Fused linear layer
 
@@ -24,14 +24,23 @@ The LoRA for the fused linear layer is defined by first creating a LoRA for the 
 
 The functions in [`qwen3_moe_fused/convert.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/qwen3_moe_fused/convert.py) can convert a model or a LoRA between the fused and the unfused formats. After you train a LoRA in the fused format, you can convert it to the unfused format, then merge it into the base model, or convert it to other formats such as GGUF. llama.cpp and vLLM already support this kind of LoRA.
 
+### LoRA over GGUF
+
+For convenience I'm developing it in this repo, but it also works with many models that are not Qwen and not MoE.
+
+Training LoRA over quantized base model (also known as QLoRA) is a common practice. Previously we usually do so with bnb 4-bit quant, but it should be possible to do so with GGUF and save more VRAM with < 4-bit quant. Although it's believed that the accuracy in inference drops significantly with < 4-bit quant, it still makes sense to train LoRA on it. Notably, AI Toolkit already supports training Qwen-Image LoRA over 3-bit base model.
+
+If we directly load a GGUF in Transformers, all the parameters will be immediately dequantized. I've written a new quantizer (like `Bnb4BitHfQuantizer`) that dequantizes parameters on demand. The Python API of gguf only provides CPU dequant code, so I borrowed some GPU dequant code from ComfyUI-GGUF. See [`example_train_30b_a3b_gguf.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/example_train_30b_a3b_gguf.py) for the usage, which runs with 16 GB VRAM using UD-IQ3_XXS quant.
+
 ### TODO
 
 * This should work with Qwen3-Next with minimal modification. I haven't started trying this, but feel free to ask if you need it.
 * Multi-GPU support. I don't have multiple GPUs at home so I'm not focusing on this. It's straightforward to do DDP using HF Accelerate, see https://github.com/woct0rdho/transformers-qwen3-moe-fused/issues/1#issuecomment-3243600437 . FSDP may also work, but expert parallel is out of the scope of this repo. If you use Unsloth, you can follow https://docs.unsloth.ai/basics/multi-gpu-training-with-unsloth . Feel free to ask if you see any error.
 * Fuse 4-bit dequant and MoE linear, see [`qwen3_moe_fused/quantize/layer.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/qwen3_moe_fused/quantize/layer.py). Currently I've written a kernel in [`qwen3_moe_fused/grouped_gemm/quantized/forward.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/qwen3_moe_fused/grouped_gemm/quantized/forward.py) but it's slower than the unfused version when the batch size is large.
+* Fuse GGUF dequant and linear layers.
 
 ### License
 
-Previously the files in `qwen3_moe_fused/grouped_gemm/` were based on the Unsloth MoE kernels so they were AGPLv3 licensed, see the [details](https://github.com/unslothai/unsloth/discussions/2890#discussioncomment-13675890). Now I believe all the code is rewritten and I can simply license the whole repo under Apache-2.0 .
+Previously the files in `qwen3_moe_fused/grouped_gemm/` were based on the Unsloth MoE kernels so they were AGPLv3 licensed, see the [details](https://github.com/unslothai/unsloth/discussions/2890#discussioncomment-13675890). I highly appreciate their pioneer work of optimizing local AI training. Now I've completely rewritten the code in that folder and I believe I can simply license the whole repo under Apache-2.0 .
 
-The rest of this repo, including files modified from Transformers, PEFT, and bitsandbytes, are Apache-2.0 licensed.
+The rest of this repo, including files modified from Transformers, PEFT, and bitsandbytes, are always Apache-2.0 licensed.

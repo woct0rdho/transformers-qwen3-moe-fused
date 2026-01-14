@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 #
-# Example to train a LoRA on the fused and quantized version of Qwen3-30B-A3B using Unsloth
-# Runs with 24 GB VRAM
+# Example to train a LoRA on the GGUF version of Qwen3-30B-A3B using Unsloth
+# Runs with 16 GB VRAM using UD-IQ3_XXS
 #
 # Important: We cache autotuned Triton kernels by default. If you did some small-scale tests, then you should
 # clear the Triton cache and the TorchInductor cache before the actual training
+#
+# If you see `RuntimeError: Unsloth: Unsuccessfully patched inner_training_loop`, you need to comment it out
 
 import os
 
 from unsloth import FastModel
 
 # Import unsloth before others
+import torch
 from datasets import load_dataset
+from transformers import AutoConfig, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 from qwen3_moe_fused.compile_utils import compile_layers
@@ -22,6 +26,7 @@ from qwen3_moe_fused.modular_qwen3_moe_fused import (
     patch_Qwen3MoeSparseMoeBlock_init,
 )
 from qwen3_moe_fused.quantize.quantizer import patch_bnb_quantizer
+from qwen3_moe_fused.quantize_gguf.quantizer import load_gguf_to_model
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
@@ -31,11 +36,26 @@ def main():
     patch_Qwen3MoeSparseMoeBlock_init()
     patch_bnb_quantizer()
     patch_lora_config()
-    patch_Qwen3MoeFusedSparseMoeBlock_forward()
+    # TODO: Make it work with GGUF
+    # patch_Qwen3MoeFusedSparseMoeBlock_forward()
 
-    model_id = "bash99/Qwen3-30B-A3B-Instruct-2507-fused-bnb-4bit"
+    gguf_path = r"C:\models\Qwen3-30B-A3B-Instruct-2507-UD-IQ3_XXS.gguf"
+    device = "cuda"
+    dtype = torch.bfloat16
+    max_seq_length = 2048
 
-    model, tokenizer = FastModel.from_pretrained(model_id, auto_model=Qwen3MoeFusedForCausalLM)
+    model_dir = os.path.dirname(gguf_path)
+    gguf_file = os.path.basename(gguf_path)
+
+    # TODO: Support loading GGUF using AutoModel.from_pretrained
+    config = AutoConfig.from_pretrained(model_dir, gguf_file=gguf_file)
+    config.dtype = dtype
+    with torch.device("meta"):
+        model = Qwen3MoeFusedForCausalLM(config)
+    model = load_gguf_to_model(model, gguf_path, device=device, dtype=dtype)
+    model.max_seq_length = max_seq_length
+
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-30B-A3B-Instruct-2507")
 
     model = FastModel.get_peft_model(
         model,
