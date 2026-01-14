@@ -10,7 +10,7 @@ from peft import PeftModel
 from transformers import AutoConfig, AutoTokenizer
 
 from qwen3_moe_fused.lora import patch_lora_config
-from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM
+from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM, patch_Qwen3MoeSparseMoeBlock_init
 from qwen3_moe_fused.quantize_gguf.quantizer import load_gguf_to_model
 
 
@@ -18,6 +18,7 @@ os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 
 def main():
+    patch_Qwen3MoeSparseMoeBlock_init()
     patch_lora_config()
 
     gguf_path = r"C:\models\Qwen3-30B-A3B-Instruct-2507-UD-IQ3_XXS.gguf"

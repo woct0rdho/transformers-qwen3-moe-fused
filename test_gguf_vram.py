@@ -5,7 +5,7 @@ import os
 import torch
 from transformers import AutoConfig
 
-from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM
+from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM, patch_Qwen3MoeSparseMoeBlock_init
 from qwen3_moe_fused.quantize_gguf.quantizer import load_gguf_to_model
 
 
@@ -16,6 +16,8 @@ def print_vram(label):
 
 
 def main():
+    patch_Qwen3MoeSparseMoeBlock_init()
+
     gguf_path = r"C:\models\Qwen3-30B-A3B-Instruct-2507-UD-IQ3_XXS.gguf"
     device = "cuda"
     dtype = torch.bfloat16

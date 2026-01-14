@@ -9,7 +9,7 @@ from peft import PeftModel
 from transformers import AutoTokenizer
 
 from qwen3_moe_fused.lora import patch_lora_config
-from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM
+from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM, patch_Qwen3MoeSparseMoeBlock_init
 from qwen3_moe_fused.quantize.quantizer import patch_bnb_quantizer
 
 
@@ -17,6 +17,7 @@ os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 
 def main():
+    patch_Qwen3MoeSparseMoeBlock_init()
     patch_bnb_quantizer()
     patch_lora_config()
 

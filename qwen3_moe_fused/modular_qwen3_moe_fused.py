@@ -12,6 +12,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeForCausalLM,
     Qwen3MoeMLP,
     Qwen3MoeModel,
+    Qwen3MoeSparseMoeBlock,
 )
 from transformers.utils.generic import OutputRecorder
 
@@ -144,3 +145,11 @@ class Qwen3MoeFusedForCausalLM(Qwen3MoeForCausalLM):
         self.model = Qwen3MoeFusedModel(config)
         self._can_record_outputs["router_logits"] = OutputRecorder(Qwen3MoeFusedSparseMoeBlock, index=1)
         self._can_record_outputs["hidden_states"] = Qwen3MoeFusedDecoderLayer
+
+
+# Qwen3MoeSparseMoeBlock.__init__ is slow because it creates a lot of experts, so we patch it away
+def patch_Qwen3MoeSparseMoeBlock_init() -> None:
+    def init(self: nn.Module, config: Qwen3MoeConfig) -> None:
+        nn.Module.__init__(self)
+
+    Qwen3MoeSparseMoeBlock.__init__ = init

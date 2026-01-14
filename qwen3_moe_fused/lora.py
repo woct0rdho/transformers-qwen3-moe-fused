@@ -146,7 +146,7 @@ class LoraMoeFusedLinear(nn.Module, LoraLayer):
         return "lora." + rep
 
 
-def patch_lora_config(*, rank_pattern: Optional[dict[str, int]] = None) -> None:
+def patch_lora_config() -> None:
     old_init = LoraConfig.__init__
 
     @functools.wraps(old_init)
