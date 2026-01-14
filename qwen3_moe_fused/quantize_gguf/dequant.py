@@ -17,15 +17,18 @@ TORCH_COMPATIBLE_QTYPES = {
 }
 
 
-def dequantize(data, qtype, oshape, dtype=None):
+def dequantize(data, qtype, oshape, device=None, dtype=None):
+    if device is None:
+        device = data.device
+
     if qtype in TORCH_COMPATIBLE_QTYPES:
         if dtype is None:
             dtype = TORCH_COMPATIBLE_QTYPES[qtype]
-        return data.to(dtype)
+        return data.to(device, dtype)
 
     block_size, type_size = gguf.GGML_QUANT_SIZES[qtype]
     dequantize_function = dequantize_functions[qtype]
-    return dequantize_function(data, block_size, type_size, dtype).view(oshape)
+    return dequantize_function(data.to(device), block_size, type_size, dtype).view(oshape)
 
 
 def wrap_dequantize_function(func):
@@ -509,7 +512,7 @@ def dequantize_blocks_IQ1_M(blocks, block_size, type_size, dtype=None):
         ((scales_u16[:, 0] & 0xF000) >> 12)
         | ((scales_u16[:, 1] & 0xF000) >> 8)
         | ((scales_u16[:, 2] & 0xF000) >> 4)
-        | ((scales_u16[:, 3] & 0xF000))
+        | (scales_u16[:, 3] & 0xF000)
     )
     d = d_bits.to(torch.int16).view(torch.float16).to(dtype).reshape(n_blocks, 1)
 

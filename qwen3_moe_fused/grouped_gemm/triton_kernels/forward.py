@@ -36,21 +36,10 @@ def grouped_gemm_forward(
     # and computed offsets.
     expt_data = compute_expt_data_torch(m_sizes, E, n_gates)
 
-    routing_data = RoutingData(
-        gate_scal=None,
-        expt_hist=m_sizes,
-        n_expts_tot=E,
-        n_expts_act=1,
-        expt_data=expt_data
-    )
+    routing_data = RoutingData(gate_scal=None, expt_hist=m_sizes, n_expts_tot=E, n_expts_act=1, expt_data=expt_data)
 
     # matmul_ogs returns (1, M, N) for non-batched x, so we squeeze it.
-    y = matmul_ogs(
-        x=x,
-        w=w_transposed,
-        bias=None,
-        routing_data=routing_data
-    )
+    y = matmul_ogs(x=x, w=w_transposed, bias=None, routing_data=routing_data)
 
     if dtype is None:
         dtype = x.dtype

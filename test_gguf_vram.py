@@ -6,17 +6,17 @@ import torch
 from transformers import AutoConfig
 
 from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM
-from qwen3_moe_fused.quantize_gguf.quantizer import (
-    load_gguf_to_model,
-    patch_load_gguf,
-)
-from test_gguf_vram import print_vram
+from qwen3_moe_fused.quantize_gguf.quantizer import load_gguf_to_model
+
+
+def print_vram(label):
+    allocated = torch.cuda.memory_allocated() / 1024**2
+    reserved = torch.cuda.memory_reserved() / 1024**2
+    print(f"[{label}] VRAM allocated: {allocated:.2f} MB, reserved: {reserved:.2f} MB")
 
 
 def main():
-    patch_load_gguf()
-
-    gguf_path = r"C:\models\Qwen3-30B-A3B-UD-IQ1_S.gguf"
+    gguf_path = r"C:\models\Qwen3-30B-A3B-Instruct-2507-UD-IQ3_XXS.gguf"
     device = "cuda"
     dtype = torch.bfloat16
 

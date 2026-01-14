@@ -3,12 +3,9 @@
 import os
 
 import torch
-from transformers import AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, Qwen3ForCausalLM
 
-from qwen3_moe_fused.quantize_gguf.quantizer import (
-    load_gguf_to_model,
-    patch_load_gguf,
-)
+from qwen3_moe_fused.quantize_gguf.quantizer import load_gguf_to_model
 from test_utils import get_rtol_atol
 
 
@@ -30,12 +27,11 @@ def main():
     with torch.inference_mode():
         out_ref = model_ref(input_ids).logits
 
-    patch_load_gguf()
-
     print("Initializing model skeleton...")
-    model_test = AutoModelForCausalLM.from_pretrained(
-        model_dir, gguf_file=gguf_file, device_map="meta", torch_dtype=dtype
-    )
+    config = AutoConfig.from_pretrained(model_dir, gguf_file=gguf_file)
+    config.dtype = dtype
+    with torch.device("meta"):
+        model_test = Qwen3ForCausalLM(config)
 
     print("Loading GGUF weights (with on-demand dequantization)...")
     model_test = load_gguf_to_model(model_test, gguf_path, device=device, dtype=dtype)

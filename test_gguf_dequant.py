@@ -85,7 +85,7 @@ def main():
         out_ref = torch.from_numpy(out_ref)
 
         quantized_gpu = torch.from_numpy(quantized).to(device)
-        out = dequantize(quantized_gpu, qtype, (numel,), torch.float32).cpu()
+        out = dequantize(quantized_gpu, qtype, (numel,), device, torch.float32).cpu()
 
         if torch.isnan(out).any():
             print("out contains NaN")

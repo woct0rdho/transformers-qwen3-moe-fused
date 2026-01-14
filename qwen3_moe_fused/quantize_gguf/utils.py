@@ -1,9 +1,8 @@
 import re
 from typing import Any, NamedTuple, Optional
 
-import numpy as np
 import torch
-from gguf import GGMLQuantizationType, GGUFReader, dequantize
+from gguf import GGMLQuantizationType, GGUFReader
 from torch import nn
 from tqdm import tqdm
 from transformers.modeling_gguf_pytorch_utils import (
@@ -14,21 +13,74 @@ from transformers.modeling_gguf_pytorch_utils import (
     get_gguf_hf_weights_map,
     read_field,
 )
+from transformers.utils.logging import get_logger
+
+from .dequant import dequantize
+
+
+logger = get_logger(__name__)
 
 
 class GGUFQuantizedTensor:
-    def __init__(self, data: np.ndarray, tensor_type: GGMLQuantizationType, shape: tuple, name: str) -> None:
+    def __init__(
+        self, data: torch.Tensor, tensor_type: GGMLQuantizationType, shape: tuple[int, ...], name: str
+    ) -> None:
         self.data = data
         self.tensor_type = tensor_type
         self.shape = shape
         self.name = name
 
-    # Returns float32 numpy array
-    def dequantize(self) -> np.ndarray:
-        return dequantize(self.data, self.tensor_type).reshape(self.shape)
+    def dequantize(self, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        return dequantize(self.data, self.tensor_type, self.shape, dtype)
+
+    def to(self, *args, **kwargs) -> "GGUFQuantizedTensor":
+        device_to_move = None
+
+        if len(args) > 0:
+            arg0 = args[0]
+            if isinstance(arg0, (torch.device, str, int)):
+                device_to_move = arg0
+            elif isinstance(arg0, torch.Tensor):
+                device_to_move = arg0.device
+
+        if "device" in kwargs:
+            device_to_move = kwargs["device"]
+
+        new_data = self.data
+        if device_to_move is not None:
+            new_data = self.data.to(device_to_move)
+
+        # We ignore dtype casting for the quantized tensor wrapper
+
+        if new_data is self.data:
+            return self
+        return GGUFQuantizedTensor(new_data, self.tensor_type, self.shape, self.name)
+
+    def contiguous(self, memory_format=torch.contiguous_format) -> "GGUFQuantizedTensor":
+        return GGUFQuantizedTensor(
+            self.data.contiguous(memory_format=memory_format), self.tensor_type, self.shape, self.name
+        )
+
+    def is_contiguous(self, memory_format=torch.contiguous_format) -> bool:
+        return self.data.is_contiguous(memory_format=memory_format)
+
+    def __getitem__(self, idx) -> "GGUFQuantizedTensor":
+        if idx is Ellipsis or idx == slice(None):
+            return self
+        raise NotImplementedError(f"Slicing GGUFQuantizedTensor is not supported: {idx}")
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self.data.dtype
+
+    @property
+    def device(self) -> torch.device:
+        return self.data.device
 
     def __repr__(self) -> str:
-        return f"GGUFQuantizedTensor(name={self.name}, type={self.tensor_type}, shape={self.shape})"
+        return (
+            f"GGUFQuantizedTensor(name={self.name}, type={self.tensor_type}, shape={self.shape}, device={self.device})"
+        )
 
 
 class GGUFProcessResult(NamedTuple):
@@ -42,11 +94,9 @@ class GGUFTensorProcessor(TensorProcessor):
         return GGUFProcessResult(weights, name, {})
 
 
+# Modified from https://github.com/huggingface/transformers/blob/2ccc6cae21faaf11631efa5fb9054687ae5dc931/src/transformers/modeling_gguf_pytorch_utils.py#L363
 def load_gguf_checkpoint_quantized(
-    gguf_checkpoint_path: str,
-    return_tensors: bool = False,
-    model_to_load: Optional[nn.Module] = None,
-    keep_quantized_tensors: bool = False,
+    gguf_checkpoint_path: str, return_tensors: bool = False, model_to_load: Optional[nn.Module] = None
 ) -> dict[str, Any]:
     """
     Loads a GGUF file and returns a dictionary of parsed parameters containing tensors (some quantized),
@@ -58,20 +108,27 @@ def load_gguf_checkpoint_quantized(
 
     parsed_parameters = {k: {} for k in GGUF_TO_TRANSFORMERS_MAPPING}
 
-    # Config parsing (copied from transformers)
-
     architecture = read_field(reader, "general.architecture")[0]
-    # Some GGUF files may miss `general.name` field in metadata
+    # NOTE: Some GGUF checkpoints may miss `general.name` field in metadata
     model_name = read_field(reader, "general.name")
 
     updated_architecture = None
+    # in llama.cpp mistral models use the same architecture as llama. We need
+    # to add this patch to ensure things work correctly on our side.
     if "llama" in architecture and "mistral" in model_name:
         updated_architecture = "mistral"
+    # FIXME: Currently this implementation is only for flan-t5 architecture.
+    # It needs to be developed for supporting legacy t5.
     elif "t5" in architecture or "t5encoder" in architecture:
-        # T5 logic simplified for brevity, assuming standard T5/UMT5 for now
-        updated_architecture = "t5"
-        if "t5encoder" in architecture:
-            parsed_parameters["config"]["architectures"] = ["T5EncoderModel"]
+        parsed_parameters["config"]["is_gated_act"] = True
+        if model_name and "umt5" in model_name[0].lower():
+            updated_architecture = "umt5"
+            if "t5encoder" in architecture:
+                parsed_parameters["config"]["architectures"] = ["UMT5EncoderModel"]
+        else:
+            if "t5encoder" in architecture:
+                parsed_parameters["config"]["architectures"] = ["T5EncoderModel"]
+            updated_architecture = "t5"
     else:
         updated_architecture = architecture
 
@@ -80,6 +137,9 @@ def load_gguf_checkpoint_quantized(
     elif "qwen3moe" in architecture:
         updated_architecture = "qwen3_moe"
 
+    # For stablelm architecture, we need to set qkv_bias and use_parallel_residual from tensors
+    # If `qkv_bias=True`, qkv_proj with bias will be present in the tensors
+    # If `use_parallel_residual=False`, ffn_norm will be present in the tensors
     if "stablelm" in architecture:
         attn_bias_name = {"attn_q.bias", "attn_k.bias", "attn_v.bias"}
         ffn_norm_name = "ffn_norm"
@@ -88,13 +148,14 @@ def load_gguf_checkpoint_quantized(
         parsed_parameters["config"]["use_qkv_bias"] = qkv_bias
         parsed_parameters["config"]["use_parallel_residual"] = not use_parallel_residual
 
-    # Tie word embeddings
+    # Handle tie_word_embeddings, if lm_head.weight is not present in tensors,
+    # tie_word_embeddings is true otherwise false
     exceptions = ["falcon", "bloom"]
     parsed_parameters["config"]["tie_word_embeddings"] = (
         all("output.weight" != tensor.name for tensor in reader.tensors) or architecture in exceptions
     )
 
-    # General fields
+    # List all key-value pairs in a columnized format
     for gguf_key, field in reader.fields.items():
         gguf_key = gguf_key.replace(architecture, updated_architecture)
         split = gguf_key.split(".")
@@ -102,8 +163,10 @@ def load_gguf_checkpoint_quantized(
         config_key = ".".join(split[1:])
 
         value = [_gguf_parse_value(field.parts[_data_index], field.types) for _data_index in field.data]
+
         if len(value) == 1:
             value = value[0]
+
         if isinstance(value, str) and architecture in value:
             value = value.replace(architecture, updated_architecture)
 
@@ -112,17 +175,51 @@ def load_gguf_checkpoint_quantized(
                 renamed_config_key = parameter_renames[prefix][config_key]
                 if renamed_config_key == -1:
                     continue
+
                 if renamed_config_key is not None:
                     parsed_parameters[parameter][renamed_config_key] = value
+
                 if gguf_key in reader_keys:
                     reader_keys.remove(gguf_key)
 
-    # Vocab size fallback
-    if "vocab_size" not in parsed_parameters["config"] and "tokens" in parsed_parameters["tokenizer"]:
-        parsed_parameters["config"]["vocab_size"] = len(parsed_parameters["tokenizer"]["tokens"])
+        if gguf_key in reader_keys:
+            logger.info(f"Some keys were not parsed and added into account {gguf_key} | {value}")
+
+    # Gemma3 GGUF checkpoint only contains weights of text backbone
+    if parsed_parameters["config"]["model_type"] == "gemma3":
+        parsed_parameters["config"]["model_type"] = "gemma3_text"
+
+    if parsed_parameters["config"]["model_type"] == "lfm2":
+        gguf_num_key_value_heads = parsed_parameters["config"]["num_key_value_heads"]
+        # LFM2 GGUF checkpoint defines num_key_value_heads as a list of integers .e.g [0, 0, 8, 0, 0, 8, 0, 0, 8, 0, 8, 0, 8, 0, 8, 0] but we need to set it to the max value for HF
+        parsed_parameters["config"]["num_key_value_heads"] = max(gguf_num_key_value_heads)
+        ## we already read the correct intermediate_size from the GGUF checkpoint so we need to set block_auto_adjust_ff_dim to False
+        parsed_parameters["config"]["block_auto_adjust_ff_dim"] = False
+
+        ## llama.cpp defines the layers that are full-attention by looking at num_key_value_heads
+        ## we need to set the full_attn_idxs to the layers that are full-attention
+        parsed_parameters["config"]["full_attn_idxs"] = [
+            i for i, num_kv_heads in enumerate(gguf_num_key_value_heads) if num_kv_heads > 0
+        ]
+
+    # retrieve config vocab_size from tokenizer
+    # Please refer to https://github.com/huggingface/transformers/issues/32526 for more details
+    if "vocab_size" not in parsed_parameters["config"]:
+        tokenizer_parameters = parsed_parameters["tokenizer"]
+        if "tokens" in tokenizer_parameters:
+            parsed_parameters["config"]["vocab_size"] = len(tokenizer_parameters["tokens"])
+        else:
+            logger.warning(
+                "Can't find a way to retrieve missing config vocab_size from tokenizer parameters. "
+                "This will use default value from model config class and cause unexpected behavior."
+            )
+
+    # Inject quantization config to trigger GGUFHfQuantizer
+    parsed_parameters["config"]["quantization_config"] = {"quant_method": "gguf"}
 
     if return_tensors:
         parsed_parameters["tensors"] = {}
+
         tensor_key_mapping = get_gguf_hf_weights_map(model_to_load)
 
         # Patch mapping for fused MoE
@@ -156,38 +253,29 @@ def load_gguf_checkpoint_quantized(
 
         for tensor in tqdm(reader.tensors, desc="Loading GGUF tensors..."):
             name = tensor.name
+            data = torch.from_numpy(tensor.data.copy())
 
-            keep_quantized = False
-            if keep_quantized_tensors:
-                if "weight" in name and "norm" not in name and "bias" not in name:
-                    keep_quantized = True
-                if "norm" in name or "bias" in name:
-                    keep_quantized = False
+            # GGUF stores shape (dim0, ..., dimN), where dim0 is fastest varying,
+            # while PyTorch and NumPy expect (dimN, ..., dim0)
+            shape = tuple(tensor.shape)[::-1]
 
-            if keep_quantized:
-                raw_data = np.copy(tensor.data)
-
-                # GGUF stores shape (dim0, ..., dimN), where dim0 is fastest varying,
-                # while PyTorch and NumPy expect (dimN, ..., dim0)
-                torch_shape = tuple(tensor.shape)[::-1]
-
-                weights = GGUFQuantizedTensor(raw_data, tensor.tensor_type, torch_shape, name)
-                result = pass_through_processor.process(
-                    weights=weights,
-                    name=name,
-                    tensor_key_mapping=tensor_key_mapping,
-                    parsed_parameters=parsed_parameters,
-                )
+            if "weight" in name and "norm" not in name and "bias" not in name:
+                # Dequantize on demand
+                weights = GGUFQuantizedTensor(data, tensor.tensor_type, shape, name)
+                processor = pass_through_processor
             else:
                 # Dequantize immediately
-                weights = dequantize(tensor.data, tensor.tensor_type)
-                result = original_processor.process(
-                    weights=weights,
-                    name=name,
-                    tensor_key_mapping=tensor_key_mapping,
-                    parsed_parameters=parsed_parameters,
-                )
+                weights = dequantize(data, tensor.tensor_type, shape)
+                processor = original_processor
 
+            result = processor.process(
+                weights=weights,
+                name=name,
+                tensor_key_mapping=tensor_key_mapping,
+                parsed_parameters=parsed_parameters,
+            )
+
+            # Now weights is either GGUFQuantizedTensor or torch.Tensor
             weights = result.weights
             name = result.name
 
@@ -198,13 +286,11 @@ def load_gguf_checkpoint_quantized(
             if name not in tensor_key_mapping:
                 continue
 
-            hf_name = tensor_key_mapping[name]
+            name = tensor_key_mapping[name]
 
-            if isinstance(weights, GGUFQuantizedTensor):
-                # Store GGUFQuantizedTensor directly
-                parsed_parameters["tensors"][hf_name] = weights
-            else:
-                # Convert to torch tensor
-                parsed_parameters["tensors"][hf_name] = torch.from_numpy(np.copy(weights))
+            parsed_parameters["tensors"][name] = weights
+
+    if len(reader_keys) > 0:
+        logger.info(f"Some keys of the GGUF file were not considered: {reader_keys}")
 
     return parsed_parameters

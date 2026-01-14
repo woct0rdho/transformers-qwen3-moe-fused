@@ -14,8 +14,8 @@ from .utils import GGUFQuantizedTensor, load_gguf_checkpoint_quantized
 
 class GGUFConfig(QuantizationConfigMixin):
     def __init__(self, **kwargs) -> None:
-        self.quant_method = "gguf"
-        super().__init__(quant_method="gguf", **kwargs)
+        kwargs["quant_method"] = "gguf"
+        super().__init__(**kwargs)
 
 
 class GGUFHfQuantizer(HfQuantizer):
@@ -33,7 +33,7 @@ class GGUFHfQuantizer(HfQuantizer):
         return dtype
 
     def _process_model_before_weight_loading(self, model: nn.Module, **kwargs) -> None:
-        replace_with_gguf_linear(model, modules_to_not_convert=self.modules_to_not_convert, config=model.config)
+        replace_with_gguf_linear(model, modules_to_not_convert=self.modules_to_not_convert)
         model.config.quantization_config = self.quantization_config
 
     def _process_model_after_weight_loading(self, model: nn.Module, **kwargs) -> nn.Module:
@@ -42,7 +42,7 @@ class GGUFHfQuantizer(HfQuantizer):
 
     def param_needs_quantization(self, model: nn.Module, param_name: str, **kwargs) -> bool:
         module, name = get_module_from_name(model, param_name)
-        return isinstance(module, (GGUFLinear, GGUFMoeFusedLinear, GGUFEmbedding)) and name == "weight"
+        return isinstance(module, (GGUFEmbedding, GGUFLinear, GGUFMoeFusedLinear)) and name == "weight"
 
     def create_quantized_param(
         self,
@@ -57,12 +57,9 @@ class GGUFHfQuantizer(HfQuantizer):
         if isinstance(param_value, GGUFQuantizedTensor):
             module.tensor_type = param_value.tensor_type
             module.original_shape = param_value.shape
-            data_tensor = torch.from_numpy(param_value.data).to(target_device)
+            data_tensor = param_value.data.to(target_device)
             module.register_buffer("weight", data_tensor)
         else:
-            if not isinstance(param_value, torch.Tensor):
-                param_value = torch.from_numpy(param_value)
-
             new_param = nn.Parameter(
                 param_value.to(device=target_device, dtype=model.dtype if hasattr(model, "dtype") else torch.float32),
                 requires_grad=False,
@@ -81,15 +78,14 @@ class GGUFHfQuantizer(HfQuantizer):
         return False
 
 
+# Does not require patch_load_gguf
 def load_gguf_to_model(
     model: nn.Module,
     gguf_path: str,
     device: Union[str, torch.device] = "cpu",
     dtype: torch.dtype = torch.float32,
 ) -> nn.Module:
-    parsed = load_gguf_checkpoint_quantized(
-        gguf_path, return_tensors=True, model_to_load=model, keep_quantized_tensors=True
-    )
+    parsed = load_gguf_checkpoint_quantized(gguf_path, return_tensors=True, model_to_load=model)
     state_dict = parsed["tensors"]
 
     quantized_names = [k for k, v in state_dict.items() if isinstance(v, GGUFQuantizedTensor)]
@@ -121,9 +117,7 @@ def load_gguf_to_model(
         else:
             module, tensor_name = get_module_from_name(model, param_name)
             if isinstance(param_value, GGUFQuantizedTensor):
-                param_value = torch.from_numpy(param_value.dequantize())
-            elif not isinstance(param_value, torch.Tensor):
-                param_value = torch.from_numpy(param_value)
+                param_value = param_value.dequantize()
 
             if tensor_name in module._parameters:
                 with torch.no_grad():
@@ -166,8 +160,13 @@ def load_gguf_to_model(
         is_output_gguf = isinstance(output_embeddings, GGUFLinear)
 
         if is_input_gguf and not is_output_gguf:
-            w = dequantize(input_embeddings.weight, input_embeddings.tensor_type, input_embeddings.original_shape)
-            w = w.to(device=output_embeddings.weight.device, dtype=output_embeddings.weight.dtype)
+            w = dequantize(
+                input_embeddings.weight,
+                input_embeddings.tensor_type,
+                input_embeddings.original_shape,
+                device=output_embeddings.weight.device,
+                dtype=output_embeddings.weight.dtype,
+            )
 
             if w.shape == output_embeddings.weight.shape:
                 pass
@@ -212,7 +211,7 @@ def replace_with_gguf_linear(
             if full_name in quantized_module_names:
                 should_convert = True
         else:
-            if isinstance(module, (nn.Linear, MoeFusedLinear, nn.Embedding)) and name not in modules_to_not_convert:
+            if isinstance(module, (nn.Embedding, nn.Linear, MoeFusedLinear)) and name not in modules_to_not_convert:
                 should_convert = True
 
         if should_convert:
@@ -263,6 +262,7 @@ def replace_with_gguf_linear(
 
 
 def patch_load_gguf() -> None:
+    from transformers import configuration_utils, modeling_gguf_pytorch_utils
     from transformers.quantizers import auto
 
     if "gguf" not in auto.AUTO_QUANTIZER_MAPPING:
@@ -271,23 +271,5 @@ def patch_load_gguf() -> None:
     if "gguf" not in auto.AUTO_QUANTIZATION_CONFIG_MAPPING:
         auto.AUTO_QUANTIZATION_CONFIG_MAPPING["gguf"] = GGUFConfig
 
-    try:
-        import transformers.modeling_gguf_pytorch_utils as gguf_utils
-
-        gguf_utils.load_gguf_checkpoint = load_gguf_checkpoint_quantized
-    except ImportError:
-        pass
-
-    try:
-        import transformers.modeling_utils as modeling_utils
-
-        modeling_utils.load_gguf_checkpoint = load_gguf_checkpoint_quantized
-    except (ImportError, AttributeError):
-        pass
-
-    try:
-        import transformers.configuration_utils as config_utils
-
-        config_utils.load_gguf_checkpoint = load_gguf_checkpoint_quantized
-    except (ImportError, AttributeError):
-        pass
+    configuration_utils.load_gguf_checkpoint = load_gguf_checkpoint_quantized
+    modeling_gguf_pytorch_utils.load_gguf_checkpoint = load_gguf_checkpoint_quantized

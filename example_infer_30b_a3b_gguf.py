@@ -11,20 +11,16 @@ from transformers import AutoConfig, AutoTokenizer
 
 from qwen3_moe_fused.lora import patch_lora_config
 from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM
-from qwen3_moe_fused.quantize_gguf.quantizer import (
-    load_gguf_to_model,
-    patch_load_gguf,
-)
+from qwen3_moe_fused.quantize_gguf.quantizer import load_gguf_to_model
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 
 def main():
-    patch_load_gguf()
     patch_lora_config()
 
-    gguf_path = r"C:\models\Qwen3-30B-A3B-UD-IQ1_S.gguf"
+    gguf_path = r"C:\models\Qwen3-30B-A3B-Instruct-2507-UD-IQ3_XXS.gguf"
     lora_id = "woctordho/Qwen3-30B-A3B-abliterated-lora-fused"
     device = "cuda"
     dtype = torch.bfloat16
@@ -40,7 +36,7 @@ def main():
     model = load_gguf_to_model(model, gguf_path, device=device, dtype=dtype)
     model = PeftModel.from_pretrained(model, lora_id)
 
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-30B-A3B")
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-30B-A3B-Instruct-2507")
 
     # Modified from https://huggingface.co/Qwen/Qwen3-30B-A3B/blob/main/README.md
     prompt = "Give me a short introduction to large language model."
