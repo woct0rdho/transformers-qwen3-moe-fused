@@ -38,7 +38,8 @@ def wrap_dequantize_function(func):
         rows = data.reshape((-1, data.shape[-1])).view(torch.uint8)
         n_blocks = rows.numel() // type_size
         blocks = rows.reshape((n_blocks, type_size))
-        return func(blocks, block_size, type_size, dtype)
+        # Always use float32 for intermediate results
+        return func(blocks, block_size, type_size, torch.float32).to(dtype)
 
     return _func
 
@@ -395,7 +396,8 @@ def dequantize_blocks_IQ3_XXS(blocks, block_size, type_size, dtype=None):
     d, qs, scales, _ = split_block_dims(blocks, 2, 64, 32)
 
     d = d.view(torch.float16).to(dtype)
-    scales = scales.clone().view(torch.int32)
+    scales = scales.reshape(n_blocks, 8, 4).to(torch.int32)
+    scales = scales[:, :, 0] | scales[:, :, 1] << 8 | scales[:, :, 2] << 16 | scales[:, :, 3] << 24
 
     db = d * (0.5 + ((scales >> 28) & 0xF).to(dtype)) * 0.5
     db = db.reshape(n_blocks, 8, 1, 1)
