@@ -1,22 +1,15 @@
 # h = silu(e) * g
 
+from itertools import product
+
 import torch
 import triton
 import triton.language as tl
 
 
-_autotune_configs = [
-    triton.Config({"BLOCK_SIZE": 64}, num_warps=4, num_stages=2),
-    triton.Config({"BLOCK_SIZE": 128}, num_warps=4, num_stages=2),
-    triton.Config({"BLOCK_SIZE": 256}, num_warps=4, num_stages=2),
-    triton.Config({"BLOCK_SIZE": 512}, num_warps=4, num_stages=2),
-    triton.Config({"BLOCK_SIZE": 1024}, num_warps=4, num_stages=2),
-    triton.Config({"BLOCK_SIZE": 64}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE": 128}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE": 256}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE": 512}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE": 1024}, num_warps=4, num_stages=3),
-]
+_autotune_configs = []
+for m, w, s in product([64, 128, 256, 512, 1024], [4, 8], [2, 3]):
+    _autotune_configs.append(triton.Config({"BLOCK_SIZE": m}, num_warps=w, num_stages=s))
 
 
 @triton.autotune(

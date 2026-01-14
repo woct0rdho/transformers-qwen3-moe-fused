@@ -35,7 +35,7 @@ provider_names = list(providers)
 @triton.testing.perf_report(
     [
         triton.testing.Benchmark(
-            x_names=["N"],
+            x_names=["M"],
             x_vals=range(1024, 16384 + 1, 1024),
             line_arg="provider",
             line_vals=provider_names,
@@ -46,8 +46,8 @@ provider_names = list(providers)
         )
     ]
 )
-def benchmark(N, provider):
-    print("N", N, "provider", provider, "begin")
+def benchmark(M, provider):
+    print("M", M, "provider", provider, "begin")
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -57,11 +57,11 @@ def benchmark(N, provider):
     device = "cuda"
     dtype = torch.bfloat16
 
-    input = torch.randn(N, in_features, device=device, dtype=dtype)
+    input = torch.randn(M, in_features, device=device, dtype=dtype)
     weight = 1 / sqrt(in_features) * torch.randn(num_experts, out_features, in_features, device=device, dtype=dtype)
     weight_quant, weight_quant_state = quantize_nf4(weight, blocksize=256, compress_statistics=True)
     del weight
-    selected_experts = torch.randint(0, num_experts, (N,), device=device, dtype=torch.int32)
+    selected_experts = torch.randint(0, num_experts, (M,), device=device, dtype=torch.int32)
     # Assume selected_experts is sorted
     selected_experts, _ = torch.sort(selected_experts)
     m_sizes = get_expert_counts(selected_experts, num_experts)
@@ -71,8 +71,8 @@ def benchmark(N, provider):
         lambda: providers[provider](input, weight_quant, weight_quant_state, m_sizes), quantiles=quantiles
     )
 
-    perf = lambda ms: 2 * N * out_features * in_features / ms * 1e-6
-    print("N", N, "provider", provider, "end", perf(ms))
+    perf = lambda ms: 2 * M * out_features * in_features / ms * 1e-6
+    print("M", M, "provider", provider, "end", perf(ms))
     return perf(ms), perf(max_ms), perf(min_ms)
 
 

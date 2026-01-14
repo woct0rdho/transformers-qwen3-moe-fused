@@ -35,7 +35,7 @@ def main():
         num_key_value_heads=4,
         max_window_layers=2,
         moe_intermediate_size=3,
-        num_experts=11,
+        num_experts=16,
         norm_topk_prob=True,
     )
 
