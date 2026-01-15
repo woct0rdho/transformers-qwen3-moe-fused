@@ -14,8 +14,13 @@ def softmax_topk_naive(logits: torch.Tensor, k: int, norm_topk_prob: bool) -> tu
     return weights, indices
 
 
+if torch.version.hip:
+    DEFAULT_NUM_STAGES = [1, 2, 3]
+else:
+    DEFAULT_NUM_STAGES = [3, 4, 5, 6]
+
 _autotune_configs = []
-for m, w, s in product([16, 32, 64], [4, 8], [3, 4, 5, 6]):
+for m, w, s in product([16, 32, 64], [4, 8], DEFAULT_NUM_STAGES):
     _autotune_configs.append(triton.Config({"BLOCK_SIZE_M": m}, num_warps=w, num_stages=s))
 
 
