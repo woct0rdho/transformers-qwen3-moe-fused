@@ -8,14 +8,6 @@ from ..modular_qwen3_moe_fused import MoeFusedLinear, moe_fused_linear
 from .dequant import dequantize
 
 
-def reverse_permute_weights(weights: torch.Tensor, n_head: int, num_kv_heads: Optional[int] = None) -> torch.Tensor:
-    if num_kv_heads is not None and n_head != num_kv_heads:
-        n_head = num_kv_heads
-    dim = weights.shape[0] // n_head // 2
-    w = weights.view(n_head, dim, 2, *weights.shape[1:])
-    return w.transpose(2, 1).reshape(weights.shape)
-
-
 class GGUFEmbedding(nn.Module):
     def __init__(
         self,
@@ -48,8 +40,6 @@ class GGUFLinear(nn.Module):
         bias: bool = True,
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
-        n_head: Optional[int] = None,
-        n_kv_head: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.in_features = in_features
@@ -62,15 +52,8 @@ class GGUFLinear(nn.Module):
         self.tensor_type = None
         self.original_shape = None
 
-        self.n_head = n_head
-        self.n_kv_head = n_kv_head
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         w = dequantize(self.weight, self.tensor_type, self.original_shape, x.device, x.dtype)
-
-        if self.n_head is not None:
-            w = reverse_permute_weights(w, self.n_head, self.n_kv_head)
-
         return F.linear(x, w, self.bias)
 
 

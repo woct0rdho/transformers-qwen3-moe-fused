@@ -234,8 +234,6 @@ def replace_with_gguf_linear(
                     bias=module.bias is not None,
                     device=module.weight.device if module.weight is not None else None,
                     dtype=curr_dtype,
-                    n_head=None,
-                    n_kv_head=None,
                 )
             elif isinstance(module, MoeFusedLinear):
                 new_module = GGUFMoeFusedLinear(
