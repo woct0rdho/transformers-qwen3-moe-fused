@@ -5,10 +5,7 @@ import os
 import torch
 from transformers import AutoConfig
 
-from qwen3_moe_fused.modular_qwen3_moe_fused import (
-    Qwen3MoeFusedForCausalLM,
-    patch_Qwen3MoeSparseMoeBlock_init,
-)
+from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM, patch_Qwen3MoeSparseMoeBlock_init
 from qwen3_moe_fused.quantize_gguf.quantizer import load_gguf_to_model
 
 

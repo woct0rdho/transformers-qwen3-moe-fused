@@ -9,10 +9,7 @@ from peft import PeftModel
 from transformers import AutoTokenizer
 
 from qwen3_moe_fused.lora import patch_lora_config
-from qwen3_moe_fused.modular_qwen3_moe_fused import (
-    Qwen3MoeFusedForCausalLM,
-    patch_Qwen3MoeSparseMoeBlock_init,
-)
+from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedForCausalLM, patch_Qwen3MoeSparseMoeBlock_init
 from qwen3_moe_fused.quantize.quantizer import patch_bnb_quantizer
 
 

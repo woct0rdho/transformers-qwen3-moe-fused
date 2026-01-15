@@ -10,10 +10,7 @@ from transformers import Qwen3MoeModel, set_seed
 
 from qwen3_moe_fused.convert import convert_lora_to_fused, convert_lora_to_unfused
 from qwen3_moe_fused.lora import patch_lora_config
-from qwen3_moe_fused.modular_qwen3_moe_fused import (
-    Qwen3MoeFusedModel,
-    moe_fused_kaiming_uniform_,
-)
+from qwen3_moe_fused.modular_qwen3_moe_fused import Qwen3MoeFusedModel, moe_fused_kaiming_uniform_
 from test_utils import get_rtol_atol
 
 

@@ -4,6 +4,8 @@
 line-length = 119
 
 [tool.isort]
+profile = "black"
+line_length = 119
 lines_after_imports = 2
 # known_first_party = ["transformers"]
 known_unsloth = ["unsloth"]

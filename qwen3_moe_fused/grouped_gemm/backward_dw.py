@@ -6,13 +6,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .autotuning import (
-    GRID_FACTOR,
-    get_autotune_configs,
-    get_autotune_keys,
-    get_num_sms,
-    prune_configs,
-)
+from .autotuning import GRID_FACTOR, get_autotune_configs, get_autotune_keys, get_num_sms, prune_configs
 from .forward import is_int_tensor
 
 

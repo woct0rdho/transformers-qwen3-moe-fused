@@ -11,11 +11,7 @@ os.environ["AUTOTUNE_BATCH_SIZE"] = "1"
 import torch
 import triton
 
-from qwen3_moe_fused.grouped_gemm.triton_kernels.forward import (
-    RoutingData,
-    compute_expt_data_torch,
-    matmul_ogs,
-)
+from qwen3_moe_fused.grouped_gemm.triton_kernels.forward import RoutingData, compute_expt_data_torch, matmul_ogs
 from qwen3_moe_fused.kernels.indexing import get_expert_counts
 
 
