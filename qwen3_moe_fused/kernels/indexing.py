@@ -6,31 +6,43 @@ import triton.language as tl
 
 
 # Faster than torch.histc when each element of s is an int in [0, E)
-@partial(torch.compile, fullgraph=True, mode="max-autotune-no-cudagraphs")
-@torch.no_grad()
 def get_expert_counts(s: torch.Tensor, E: int) -> torch.Tensor:
-    arange = torch.arange(E, device=s.device, dtype=s.dtype)
+    s = s.to(torch.int32)
+    arange = torch.arange(E, device=s.device, dtype=torch.int32)
     counts = (arange[:, None] == s[None, :]).sum(dim=1, dtype=torch.int32)
     return counts
 
 
+def get_expert_counts_and_idx_naive(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    counts = get_expert_counts(s, E)
+
+    idx = torch.argsort(s, stable=True).to(torch.int32)
+
+    s_arange = torch.arange(s.numel(), device=s.device, dtype=torch.int32)
+    inv_idx = torch.empty_like(idx)
+    inv_idx[idx] = s_arange
+
+    # The above definition of idx is the opposite of torch.sort
+    return counts, inv_idx, idx
+
+
 @partial(torch.compile, fullgraph=True, mode="max-autotune-no-cudagraphs")
 @torch.no_grad()
-def get_expert_counts_and_idx_naive(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    E_arange = torch.arange(E, device=s.device, dtype=s.dtype)
+def get_expert_counts_and_idx_parallel(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    s = s.to(torch.int32)
+    E_arange = torch.arange(E, device=s.device, dtype=torch.int32)
     compare = E_arange[:, None] == s[None, :]
     counts = compare.sum(dim=1, dtype=torch.int32)
 
-    s_arange = torch.arange(s.numel(), device=s.device, dtype=s.dtype)
+    s_arange = torch.arange(s.numel(), device=s.device, dtype=torch.int32)
     ranks_in_bin = compare.cumsum(dim=1, dtype=torch.int32)
     ranks_in_bin = ranks_in_bin[s, s_arange]
     offsets = counts.cumsum(dim=0, dtype=torch.int32) - counts
     idx = ranks_in_bin + offsets[s] - 1  # int32
 
     inv_idx = torch.empty_like(idx)  # int32
-    inv_idx[idx] = s_arange.to(inv_idx.dtype)
+    inv_idx[idx] = s_arange
 
-    # The above definition of idx is the opposite of torch.sort
     return counts, inv_idx, idx
 
 
@@ -90,7 +102,7 @@ def _index_kernel(
 
 @partial(torch.compile, fullgraph=True, mode="max-autotune-no-cudagraphs")
 @torch.no_grad()
-def get_expert_counts_and_idx(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def get_expert_counts_and_idx_blocks(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     N = s.numel()
     BLOCK_SIZE = 1024
     num_blocks = triton.cdiv(N, BLOCK_SIZE)
@@ -116,3 +128,10 @@ def get_expert_counts_and_idx(s: torch.Tensor, E: int) -> tuple[torch.Tensor, to
     _index_kernel[(num_blocks,)](s, idx, inv_idx, diff_offsets, N, E, BLOCK_SIZE)
 
     return counts, inv_idx, idx
+
+
+def get_expert_counts_and_idx(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if s.numel() <= 16384:
+        return get_expert_counts_and_idx_parallel(s, E)
+    else:
+        return get_expert_counts_and_idx_blocks(s, E)
