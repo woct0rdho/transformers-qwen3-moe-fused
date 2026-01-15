@@ -1,17 +1,8 @@
 from functools import partial
 
 import torch
-
-
-# Assume s is sorted
-@partial(torch.compile, fullgraph=True, mode="max-autotune-no-cudagraphs")
-@torch.no_grad()
-def get_batch_begins_ends(s: torch.Tensor, E: int) -> torch.Tensor:
-    arange = torch.arange(E, device=s.device, dtype=s.dtype)
-    s_begins = (arange[:, None] > s[None, :]).sum(dim=1, dtype=torch.int32)
-    s_ends = (arange[:, None] >= s[None, :]).sum(dim=1, dtype=torch.int32)
-    s_begins_ends = torch.stack([s_begins, s_ends], dim=1)
-    return s_begins_ends
+import triton
+import triton.language as tl
 
 
 # Faster than torch.histc when each element of s is an int in [0, E)
@@ -23,14 +14,12 @@ def get_expert_counts(s: torch.Tensor, E: int) -> torch.Tensor:
     return counts
 
 
-# Faster than torch.sort when each element of s is an int in [0, E)
 @partial(torch.compile, fullgraph=True, mode="max-autotune-no-cudagraphs")
 @torch.no_grad()
-def sort_experts(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def get_expert_counts_and_idx_naive(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     E_arange = torch.arange(E, device=s.device, dtype=s.dtype)
     compare = E_arange[:, None] == s[None, :]
     counts = compare.sum(dim=1, dtype=torch.int32)
-    s_sorted = torch.repeat_interleave(counts, output_size=s.numel())  # int32
 
     s_arange = torch.arange(s.numel(), device=s.device, dtype=s.dtype)
     ranks_in_bin = compare.cumsum(dim=1, dtype=torch.int32)
@@ -42,24 +31,88 @@ def sort_experts(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, t
     inv_idx[idx] = s_arange.to(inv_idx.dtype)
 
     # The above definition of idx is the opposite of torch.sort
-    return s_sorted, inv_idx, idx
+    return counts, inv_idx, idx
+
+
+@triton.jit
+def _count_kernel(
+    s_ptr,
+    counts_ptr,
+    N,
+    E,
+    BLOCK_SIZE: tl.constexpr,
+):
+    pid = tl.program_id(0)
+    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    mask = offs < N
+    # Load s, using E as sentinel for out-of-bounds
+    s = tl.load(s_ptr + offs, mask=mask, other=E)
+    row_start = pid * E
+    tl.atomic_add(counts_ptr + row_start + s, 1, mask=s < E)
+
+
+@triton.jit
+def _index_kernel(
+    s_ptr,
+    idx_ptr,
+    inv_idx_ptr,
+    diff_offsets_ptr,
+    N,
+    E,
+    BLOCK_SIZE: tl.constexpr,
+):
+    pid = tl.program_id(0)
+    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    mask = offs < N
+    # Load s, using E as sentinel for out-of-bounds
+    s = tl.load(s_ptr + offs, mask=mask, other=E)
+
+    # Sort key: (expert_idx << 32) | local_idx
+    local_idx = tl.arange(0, BLOCK_SIZE)
+    packed = (s.to(tl.uint64) << 32) | local_idx.to(tl.uint64)
+
+    sorted_packed = tl.sort(packed)
+
+    sorted_s = (sorted_packed >> 32).to(tl.int32)
+    sorted_local_idx = (sorted_packed & 0xFFFFFFFF).to(tl.int32)
+
+    # Fetch precomputed offsets
+    row_start = pid * E
+    valid_mask = sorted_s < E
+    diff = tl.load(diff_offsets_ptr + row_start + sorted_s, mask=valid_mask)
+    dest = tl.arange(0, BLOCK_SIZE) + diff
+
+    # Map back to global indices
+    orig_idx = pid * BLOCK_SIZE + sorted_local_idx
+    tl.store(inv_idx_ptr + dest, orig_idx, mask=valid_mask)
+    tl.store(idx_ptr + orig_idx, dest, mask=valid_mask)
 
 
 @partial(torch.compile, fullgraph=True, mode="max-autotune-no-cudagraphs")
 @torch.no_grad()
 def get_expert_counts_and_idx(s: torch.Tensor, E: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    E_arange = torch.arange(E, device=s.device, dtype=s.dtype)
-    compare = E_arange[:, None] == s[None, :]
-    counts = compare.sum(dim=1, dtype=torch.int32)
+    N = s.numel()
+    BLOCK_SIZE = 1024
+    num_blocks = triton.cdiv(N, BLOCK_SIZE)
 
-    s_arange = torch.arange(s.numel(), device=s.device, dtype=s.dtype)
-    ranks_in_bin = compare.cumsum(dim=1, dtype=torch.int32)
-    ranks_in_bin = ranks_in_bin[s, s_arange]
-    offsets = counts.cumsum(dim=0, dtype=torch.int32) - counts
-    idx = ranks_in_bin + offsets[s] - 1  # int32
+    block_counts = torch.zeros((num_blocks, E), device=s.device, dtype=torch.int32)
+    _count_kernel[(num_blocks,)](s, block_counts, N, E, BLOCK_SIZE)
+    counts = block_counts.sum(dim=0, dtype=torch.int32)
 
-    inv_idx = torch.empty_like(idx)  # int32
-    inv_idx[idx] = s_arange.to(inv_idx.dtype)
+    diff_offsets = block_counts.cumsum(dim=0, dtype=torch.int32)
+    diff_offsets -= block_counts
 
-    # The above definition of idx is the opposite of torch.sort
+    global_expert_offsets = counts.cumsum(dim=0, dtype=torch.int32)
+    global_expert_offsets -= counts
+    diff_offsets += global_expert_offsets.unsqueeze(0)
+
+    local_offsets = block_counts.cumsum(dim=1, dtype=torch.int32)
+    local_offsets -= block_counts
+    diff_offsets -= local_offsets
+
+    idx = torch.empty(N, device=s.device, dtype=torch.int32)
+    inv_idx = torch.empty(N, device=s.device, dtype=torch.int32)
+
+    _index_kernel[(num_blocks,)](s, idx, inv_idx, diff_offsets, N, E, BLOCK_SIZE)
+
     return counts, inv_idx, idx

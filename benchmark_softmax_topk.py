@@ -12,17 +12,13 @@ from qwen3_moe_fused.kernels.softmax_topk import softmax_topk, softmax_topk_naiv
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 
-def softmax_topk_compile(logits, k, norm):
-    return softmax_topk_naive(logits, k, norm)
-
-
 softmax_topk_compiled = torch.compile(softmax_topk_naive, fullgraph=True, mode="max-autotune")
 
 
 providers = {
     "naive": softmax_topk_naive,
     "compile": softmax_topk_compiled,
-    "kernel": softmax_topk,
+    "triton": softmax_topk,
 }
 provider_names = list(providers)
 

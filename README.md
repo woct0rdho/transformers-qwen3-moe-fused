@@ -18,6 +18,8 @@ The implementation in this repo is largely based on the [Triton grouped GEMM](ht
 
 I aim to keep the code readable and easy to follow. I only used the most mature features of Triton, such as load and store, rather than things like TMA and swizzle. Currently it's mainly optimized for RTX 3090, RTX 4090, and Strix Halo. Help wanted to optimize it for RTX 5090.
 
+This repo also includes Triton kernels for fused softmax-topk, and expert counting and indexing.
+
 ### LoRA
 
 The LoRA for the fused linear layer is defined by first creating a LoRA for the linear layer in each expert, then stack them along the experts dimension. For the weight tensor with shape `(num_experts, out_features, in_features)`, the two LoRA weights have shape `lora_A: (num_experts, lora_rank, in_features), lora_B: (num_experts, out_features, lora_rank)`. Therefore, we can losslessly convert between the fused and the unfused formats, and a previously trained LoRA can continue to be trained.
