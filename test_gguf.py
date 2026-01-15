@@ -27,6 +27,8 @@ def main():
     with torch.inference_mode():
         out_ref = model_ref(input_ids).logits
 
+    del model_ref
+
     print("Initializing model skeleton...")
     config = AutoConfig.from_pretrained(model_dir, gguf_file=gguf_file)
     config.dtype = dtype
@@ -35,17 +37,6 @@ def main():
 
     print("Loading GGUF weights (with on-demand dequantization)...")
     model_test = load_gguf_to_model(model_test, gguf_path, device=device, dtype=dtype)
-
-    ref_keys = set(model_ref.state_dict().keys())
-    test_keys = set(model_test.state_dict().keys())
-    missing_in_test = ref_keys - test_keys
-    extra_in_test = test_keys - ref_keys
-    if missing_in_test:
-        print(f"Warning: Keys in ref but missing in test: {len(missing_in_test)}")
-        print(sorted(missing_in_test))
-    if extra_in_test:
-        print(f"Warning: Keys in test but missing in ref: {len(extra_in_test)}")
-        print(sorted(extra_in_test))
 
     print("Running forward pass...")
     with torch.inference_mode():

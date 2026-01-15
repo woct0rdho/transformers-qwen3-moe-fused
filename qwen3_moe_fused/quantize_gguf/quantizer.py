@@ -120,9 +120,8 @@ def load_gguf_to_model(
                 param_value = param_value.dequantize()
 
             if tensor_name in module._parameters:
-                with torch.no_grad():
-                    new_param = nn.Parameter(param_value.to(device=device, dtype=dtype), requires_grad=False)
-                    module._parameters[tensor_name] = new_param
+                new_param = nn.Parameter(param_value.to(device=device, dtype=dtype), requires_grad=False)
+                module._parameters[tensor_name] = new_param
             else:
                 module.register_buffer(tensor_name, param_value.to(device=device, dtype=dtype), persistent=True)
 
@@ -173,8 +172,7 @@ def load_gguf_to_model(
             elif w.shape == (output_embeddings.weight.shape[1], output_embeddings.weight.shape[0]):
                 w = w.T
 
-            with torch.no_grad():
-                output_embeddings.weight.data = w
+            output_embeddings.weight.data = w
 
         elif is_input_gguf and is_output_gguf:
             # If output_embeddings.weight is None, it means it wasn't loaded from GGUF (because it's tied),
@@ -251,14 +249,13 @@ def replace_with_gguf_linear(
             if new_module is not None:
                 model._modules[name] = new_module
 
-        if len(list(module.children())) > 0:
-            replace_with_gguf_linear(
-                module,
-                modules_to_not_convert,
-                quantized_module_names,
-                full_name,
-                target_dtype=target_dtype,
-            )
+        replace_with_gguf_linear(
+            module,
+            modules_to_not_convert,
+            quantized_module_names,
+            full_name,
+            target_dtype=target_dtype,
+        )
 
 
 def patch_load_gguf() -> None:
