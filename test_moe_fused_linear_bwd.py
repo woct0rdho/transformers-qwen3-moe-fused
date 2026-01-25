@@ -5,12 +5,7 @@ from math import sqrt
 
 import torch
 
-from qwen3_moe_fused.functional import (
-    _moe_fused_linear_naive_bwd_input,
-    _moe_fused_linear_naive_bwd_weight,
-    _moe_fused_linear_naive_fwd,
-    moe_fused_linear,
-)
+from qwen3_moe_fused.functional import moe_fused_linear, moe_fused_linear_naive
 from qwen3_moe_fused.kernels.indexing import get_expert_counts
 from test_utils import get_rtol_atol
 
@@ -48,21 +43,12 @@ def main():
 
     input_auto = input.clone().requires_grad_()
     weight_auto = weight.clone().requires_grad_()
-    output_auto = _moe_fused_linear_naive_fwd(input_auto, weight_auto, selected_experts)
+    output_auto = moe_fused_linear_naive(input_auto, weight_auto, m_sizes)
     output_auto.backward(gradient=grad_output)
     grad_input_auto = input_auto.grad
     grad_weight_auto = weight_auto.grad
     print("grad_input_auto", grad_input_auto.shape, grad_input_auto.dtype)
     print("grad_weight_auto", grad_weight_auto.shape, grad_weight_auto.dtype)
-
-    grad_input_naive = _moe_fused_linear_naive_bwd_input(grad_output, input, weight, selected_experts)
-    grad_weight_naive = _moe_fused_linear_naive_bwd_weight(grad_output, input, weight, selected_experts)
-    print("grad_input_naive", grad_input_naive.shape, grad_input_naive.dtype)
-    print("grad_weight_naive", grad_weight_naive.shape, grad_weight_naive.dtype)
-    print(torch.allclose(grad_input_naive, grad_input_auto, rtol=rtol, atol=atol))
-    print(torch.allclose(grad_weight_naive, grad_weight_auto, rtol=rtol, atol=atol * batch_size))
-    print(get_rtol_atol(grad_input_naive, grad_input_auto))
-    print(get_rtol_atol(grad_weight_naive, grad_weight_auto))
 
     input_grouped_gemm = input.clone().requires_grad_()
     weight_grouped_gemm = weight.clone().requires_grad_()

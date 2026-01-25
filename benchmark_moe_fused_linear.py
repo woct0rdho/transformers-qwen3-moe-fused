@@ -11,6 +11,7 @@ os.environ["AUTOTUNE_BATCH_SIZE"] = "1"
 import torch
 import triton
 
+from qwen3_moe_fused.functional import moe_fused_linear_naive
 from qwen3_moe_fused.grouped_gemm.forward import grouped_gemm_forward
 from qwen3_moe_fused.kernels.indexing import get_expert_counts
 
@@ -18,6 +19,7 @@ from qwen3_moe_fused.kernels.indexing import get_expert_counts
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 providers = {
+    "torch": moe_fused_linear_naive,
     "grouped_gemm": grouped_gemm_forward,
 }
 provider_names = list(providers)
