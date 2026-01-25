@@ -74,6 +74,6 @@ class GGUFMoeFusedLinear(MoeFusedLinear):
         self.original_shape = None
         self.compute_dtype = dtype
 
-    def forward(self, x: torch.Tensor, m_sizes: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, m_offsets: torch.Tensor) -> torch.Tensor:
         w = dequantize(self.weight, self.tensor_type, self.original_shape, x.device, x.dtype)
-        return moe_fused_linear(x, w, m_sizes)
+        return moe_fused_linear(x, w, m_offsets)

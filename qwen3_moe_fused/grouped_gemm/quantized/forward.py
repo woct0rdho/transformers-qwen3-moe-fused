@@ -27,7 +27,7 @@ def _grouped_gemm_forward_4bit_kernel(
     w_code_ptr,
     w_absmax_ptr,
     w_blocksize: tl.constexpr,
-    m_sizes_ptr,
+    m_offsets_ptr,
     y_ptr,
     # Dimensions
     M: int,
@@ -50,12 +50,15 @@ def _grouped_gemm_forward_4bit_kernel(
     LOOP_ORDER: tl.constexpr = 0,
 ) -> None:
     tidx = tl.program_id(0)
-    m_end = 0
     processed_tiles = 0
     for expert_idx in range(NUM_EXPERTS):
-        m_start = m_end
-        m_size = tl.load(m_sizes_ptr + expert_idx).to(tl.int32)
-        m_end = m_start + m_size
+        m_end = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
+        if expert_idx == 0:
+            m_start = 0
+        else:
+            m_start = tl.load(m_offsets_ptr + expert_idx - 1).to(tl.int32)
+        m_size = m_end - m_start
+
         if m_size > 0:
             # tiles for this group's GEMM
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
@@ -128,7 +131,7 @@ def grouped_gemm_forward_4bit(
     x: torch.Tensor,
     w_quant: torch.Tensor,
     w_quant_state: QuantState,
-    m_sizes: torch.Tensor,
+    m_offsets: torch.Tensor,
     dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     assert w_quant_state.quant_type == "nf4"
@@ -148,17 +151,17 @@ def grouped_gemm_forward_4bit(
     assert w_quant.device == x.device
     assert w_code.device == x.device
     assert w_absmax.device == x.device
-    assert m_sizes.device == x.device
+    assert m_offsets.device == x.device
     assert is_int_tensor(w_quant)
-    assert is_int_tensor(m_sizes)
+    assert is_int_tensor(m_offsets)
     assert x.is_contiguous()
     assert w_quant.is_contiguous()
     assert w_code.is_contiguous()
     assert w_absmax.is_contiguous()
-    assert m_sizes.is_contiguous()
+    assert m_offsets.is_contiguous()
     assert x.ndim == 2
     assert len(w_quant_state.shape) == 3
-    assert m_sizes.ndim == 1
+    assert m_offsets.ndim == 1
     M, K = x.shape
     E, N, _ = w_quant_state.shape
     assert w_quant_state.shape[2] == K
@@ -166,7 +169,7 @@ def grouped_gemm_forward_4bit(
     assert E * N * K % w_quant_state.blocksize == 0
     assert w_quant.numel() == E * N * K // 2
     assert w_absmax.numel() == E * N * K // w_quant_state.blocksize
-    assert m_sizes.numel() == E
+    assert m_offsets.numel() == E
 
     if dtype is None:
         dtype = x.dtype
@@ -181,7 +184,7 @@ def grouped_gemm_forward_4bit(
             w_code,
             w_absmax,
             w_quant_state.blocksize,
-            m_sizes,
+            m_offsets,
             y,
             # Dimensions
             M,

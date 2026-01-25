@@ -7,9 +7,9 @@ import torch
 import triton
 
 from qwen3_moe_fused.kernels.indexing import (
-    get_expert_counts_and_idx_blocks,
-    get_expert_counts_and_idx_naive,
-    get_expert_counts_and_idx_parallel,
+    get_expert_offsets_and_idx_blocks,
+    get_expert_offsets_and_idx_naive,
+    get_expert_offsets_and_idx_parallel,
 )
 
 
@@ -17,9 +17,9 @@ os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 
 providers = {
-    "naive": get_expert_counts_and_idx_naive,
-    "parallel": get_expert_counts_and_idx_parallel,
-    "blocks": get_expert_counts_and_idx_blocks,
+    "naive": get_expert_offsets_and_idx_naive,
+    "parallel": get_expert_offsets_and_idx_parallel,
+    "blocks": get_expert_offsets_and_idx_blocks,
 }
 provider_names = list(providers)
 

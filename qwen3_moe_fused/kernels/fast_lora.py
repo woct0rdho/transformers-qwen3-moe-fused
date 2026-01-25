@@ -64,7 +64,7 @@ def _maybe_dequant(weight, quant_state):
 
 class FastLora(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, Gq, Gqs, Ag, Bg, Sg, Uq, Uqs, Au, Bu, Su, Wq, Wqs, Aw, Bw, Sw, m_sizes):
+    def forward(ctx, x, Gq, Gqs, Ag, Bg, Sg, Uq, Uqs, Au, Bu, Su, Wq, Wqs, Aw, Bw, Sw, m_offsets):
         # Cast all weights to x.dtype
         # The grouped GEMM kernels use float32 accumulator
         if Gqs is None:
@@ -89,7 +89,7 @@ class FastLora(torch.autograd.Function):
         Bw = Bw.to(x.dtype)
 
         def mv(_w, _x):
-            return grouped_gemm_forward(_x, _w, m_sizes, x.dtype)
+            return grouped_gemm_forward(_x, _w, m_offsets, x.dtype)
 
         def mv_lora(_x, _wq, _wqs, _a, _b, _s):
             _w = _maybe_dequant(_wq, _wqs)
@@ -102,20 +102,20 @@ class FastLora(torch.autograd.Function):
         h = silu_mul_forward(e, g)
         y = mv_lora(h, Wq, Wqs, Aw, Bw, Sw)
 
-        ctx.custom_saved_tensors = (Gq, Gqs, Sg, Uq, Uqs, Su, Wq, Wqs, Sw, m_sizes)
+        ctx.custom_saved_tensors = (Gq, Gqs, Sg, Uq, Uqs, Su, Wq, Wqs, Sw, m_offsets)
         ctx.save_for_backward(x, Ag, Bg, Au, Bu, Aw, Bw, e, g)
         return y
 
     @staticmethod
     def backward(ctx, dy):
-        Gq, Gqs, Sg, Uq, Uqs, Su, Wq, Wqs, Sw, m_sizes = ctx.custom_saved_tensors
+        Gq, Gqs, Sg, Uq, Uqs, Su, Wq, Wqs, Sw, m_offsets = ctx.custom_saved_tensors
         x, Ag, Bg, Au, Bu, Aw, Bw, e, g = ctx.saved_tensors
 
         def vm(_x, _w):
-            return grouped_gemm_forward(_x, _w, m_sizes, x.dtype, transpose_w=True)
+            return grouped_gemm_forward(_x, _w, m_offsets, x.dtype, transpose_w=True)
 
         def vv(_y, _x):
-            return grouped_gemm_backward_dw(_x, _y, m_sizes, x.dtype)
+            return grouped_gemm_backward_dw(_x, _y, m_offsets, x.dtype)
 
         def emv(_w, _x):
             return torch.einsum("eri,eji->erj", _w, _x).to(x.dtype)
@@ -167,7 +167,7 @@ class FastLora(torch.autograd.Function):
             dAw,
             dBw,
             None,  # Sw
-            None,  # m_sizes
+            None,  # m_offsets
         )
 
 

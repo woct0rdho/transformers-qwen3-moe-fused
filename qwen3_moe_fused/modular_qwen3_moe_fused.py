@@ -17,7 +17,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 from transformers.utils.generic import OutputRecorder
 
 from .functional import moe_fused_linear
-from .kernels.indexing import get_expert_counts_and_idx
+from .kernels.indexing import get_expert_offsets_and_idx
 
 
 def moe_fused_kaiming_uniform_(weight: torch.Tensor) -> None:
@@ -54,8 +54,8 @@ class MoeFusedLinear(nn.Module):
     def reset_parameters(self) -> None:
         moe_fused_kaiming_uniform_(self.weight)
 
-    def forward(self, input: torch.Tensor, m_sizes: torch.Tensor) -> torch.Tensor:
-        return moe_fused_linear(input, self.weight, m_sizes)
+    def forward(self, input: torch.Tensor, m_offsets: torch.Tensor) -> torch.Tensor:
+        return moe_fused_linear(input, self.weight, m_offsets)
 
     def extra_repr(self) -> str:
         return f"in_features={self.in_features}, out_features={self.out_features}, num_experts={self.num_experts}"
@@ -101,15 +101,15 @@ class Qwen3MoeFusedSparseMoeBlock(nn.Module):
 
         # Sort selected_experts and hidden_states for better memory coalescence of weight
         # It's possible to fuse a sort and a MoeFusedLinear layer, but for now we separate them for clarity
-        m_sizes, sort_idx, inv_sort_idx = get_expert_counts_and_idx(selected_experts, self.num_experts)
+        m_offsets, sort_idx, inv_sort_idx = get_expert_offsets_and_idx(selected_experts, self.num_experts)
         hidden_states = hidden_states[sort_idx]
 
         # It's possible to fuse gate_h and up_h, but this affects the shape of LoRA
-        gate_h = self.gate_proj(hidden_states, m_sizes)
-        up_h = self.up_proj(hidden_states, m_sizes)
+        gate_h = self.gate_proj(hidden_states, m_offsets)
+        up_h = self.up_proj(hidden_states, m_offsets)
         hidden_states = F.silu(gate_h) * up_h
         del gate_h, up_h
-        hidden_states = self.down_proj(hidden_states, m_sizes)
+        hidden_states = self.down_proj(hidden_states, m_offsets)
 
         hidden_states = hidden_states[inv_sort_idx]
 

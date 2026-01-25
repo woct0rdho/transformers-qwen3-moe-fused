@@ -71,8 +71,11 @@ def _grouped_gemm_forward_kernel(
 
     y = torch.empty((M, N), device=x.device, dtype=dtype)
     for expert_idx in hl.grid(E):
-        m_start = m_offsets[expert_idx]
-        m_end = m_offsets[expert_idx + 1]
+        m_end = m_offsets[expert_idx]
+        if expert_idx == 0:
+            m_start = 0
+        else:
+            m_start = m_offsets[expert_idx - 1]
         m_size = m_end - m_start
         if m_size > 0:
             for tile_m, tile_n in hl.tile([m_size, N]):
@@ -87,21 +90,19 @@ def _grouped_gemm_forward_kernel(
 
 
 def grouped_gemm_forward(
-    x: torch.Tensor, w: torch.Tensor, m_sizes: torch.Tensor, dtype: Optional[torch.dtype] = None
+    x: torch.Tensor, w: torch.Tensor, m_offsets: torch.Tensor, dtype: Optional[torch.dtype] = None
 ) -> torch.Tensor:
     assert x.ndim == 2
     assert w.ndim == 3
-    assert m_sizes.ndim == 1
+    assert m_offsets.ndim == 1
     M, _ = x.shape
     E, N, K = w.shape
     assert x.shape[1] == K
-    assert m_sizes.numel() == E
+    assert m_offsets.numel() == E
 
     if dtype is None:
         dtype = x.dtype
 
-    m_offsets = torch.zeros(E + 1, device=m_sizes.device, dtype=m_sizes.dtype)
-    m_offsets[1:] = torch.cumsum(m_sizes, dim=0)
     m_offsets = m_offsets.to(torch.int32)
 
     return _grouped_gemm_forward_kernel(x, w, m_offsets, dtype)

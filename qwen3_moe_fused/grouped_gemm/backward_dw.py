@@ -81,8 +81,11 @@ def _grouped_gemm_backward_dw_kernel(
             tile_n_idx = tile_idx // num_k_tiles
             tile_k_idx = tile_idx % num_k_tiles
 
-        m_start = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
-        m_end = tl.load(m_offsets_ptr + expert_idx + 1).to(tl.int32)
+        m_end = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
+        if expert_idx == 0:
+            m_start = 0
+        else:
+            m_start = tl.load(m_offsets_ptr + expert_idx - 1).to(tl.int32)
         m_size = m_end - m_start
 
         if m_size > 0:
@@ -114,27 +117,24 @@ def _grouped_gemm_backward_dw_kernel(
 
 
 def grouped_gemm_backward_dw(
-    x: torch.Tensor, y: torch.Tensor, m_sizes: torch.Tensor, dtype: torch.dtype
+    x: torch.Tensor, y: torch.Tensor, m_offsets: torch.Tensor, dtype: torch.dtype
 ) -> torch.Tensor:
     assert x.is_cuda
     assert y.device == x.device
-    assert m_sizes.device == x.device
-    assert is_int_tensor(m_sizes)
+    assert m_offsets.device == x.device
+    assert is_int_tensor(m_offsets)
     assert x.is_contiguous()
     assert y.is_contiguous()
-    assert m_sizes.is_contiguous()
+    assert m_offsets.is_contiguous()
     assert x.ndim == 2
     assert y.ndim == 2
-    assert m_sizes.ndim == 1
+    assert m_offsets.ndim == 1
     M, K = x.shape
     _, N = y.shape
     assert y.shape[0] == M
-    E = m_sizes.numel()
+    E = m_offsets.numel()
 
     w = torch.zeros((E, N, K), device=x.device, dtype=dtype)
-
-    m_offsets = torch.zeros(E + 1, device=m_sizes.device, dtype=m_sizes.dtype)
-    m_offsets[1:] = torch.cumsum(m_sizes, dim=0)
 
     NUM_SMS = get_num_sms()
     TOTAL_BLOCKS = NUM_SMS * GRID_FACTOR

@@ -8,7 +8,7 @@ from bitsandbytes.functional import dequantize_nf4, quantize_nf4
 
 from qwen3_moe_fused.functional import moe_fused_linear, moe_fused_linear_naive
 from qwen3_moe_fused.grouped_gemm.quantized.forward import grouped_gemm_forward_4bit
-from qwen3_moe_fused.kernels.indexing import get_expert_counts
+from qwen3_moe_fused.kernels.indexing import get_expert_offsets
 from test_utils import get_rtol_atol
 
 
@@ -42,17 +42,17 @@ def main():
     selected_experts = torch.randint(0, num_experts, (batch_size,), device=device, dtype=torch.int32)
     # Assume selected_experts is sorted
     selected_experts, _ = torch.sort(selected_experts)
-    m_sizes = get_expert_counts(selected_experts, num_experts)
+    m_offsets = get_expert_offsets(selected_experts, num_experts)
 
-    output_naive = moe_fused_linear_naive(input, weight, m_sizes)
+    output_naive = moe_fused_linear_naive(input, weight, m_offsets)
     print("output_naive", output_naive.shape, output_naive.dtype)
 
-    output_grouped_gemm = moe_fused_linear(input, weight, m_sizes)
+    output_grouped_gemm = moe_fused_linear(input, weight, m_offsets)
     print("output_grouped_gemm", output_grouped_gemm.shape, output_grouped_gemm.dtype)
     print(torch.allclose(output_grouped_gemm, output_naive, rtol=rtol, atol=atol))
     print(get_rtol_atol(output_grouped_gemm, output_naive))
 
-    output_grouped_gemm_4bit = grouped_gemm_forward_4bit(input, weight_quant, weight_quant_state, m_sizes)
+    output_grouped_gemm_4bit = grouped_gemm_forward_4bit(input, weight_quant, weight_quant_state, m_offsets)
     print("output_grouped_gemm_4bit", output_grouped_gemm_4bit.shape, output_grouped_gemm_4bit.dtype)
     print(torch.allclose(output_grouped_gemm_4bit, output_naive, rtol=rtol, atol=atol))
     print(get_rtol_atol(output_grouped_gemm_4bit, output_naive))

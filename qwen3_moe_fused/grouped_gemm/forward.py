@@ -43,7 +43,7 @@ def _grouped_gemm_forward_kernel(
     # Pointers
     x_ptr,
     w_ptr,
-    m_sizes_ptr,
+    m_offsets_ptr,
     y_ptr,
     # Dimensions
     M: int,
@@ -66,12 +66,15 @@ def _grouped_gemm_forward_kernel(
     LOOP_ORDER: tl.constexpr = 0,
 ) -> None:
     tidx = tl.program_id(0)
-    m_end = 0
     processed_tiles = 0
     for expert_idx in range(NUM_EXPERTS):
-        m_start = m_end
-        m_size = tl.load(m_sizes_ptr + expert_idx).to(tl.int32)
-        m_end = m_start + m_size
+        m_end = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
+        if expert_idx == 0:
+            m_start = 0
+        else:
+            m_start = tl.load(m_offsets_ptr + expert_idx - 1).to(tl.int32)
+        m_size = m_end - m_start
+
         if m_size > 0:
             # tiles for this group's GEMM
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
@@ -139,20 +142,20 @@ def is_int_tensor(x: torch.Tensor) -> bool:
 def grouped_gemm_forward(
     x: torch.Tensor,
     w: torch.Tensor,
-    m_sizes: torch.Tensor,
+    m_offsets: torch.Tensor,
     dtype: Optional[torch.dtype] = None,
     transpose_w: bool = False,
 ) -> torch.Tensor:
     assert x.is_cuda
     assert w.device == x.device
-    assert m_sizes.device == x.device
-    assert is_int_tensor(m_sizes)
+    assert m_offsets.device == x.device
+    assert is_int_tensor(m_offsets)
     assert x.is_contiguous()
     assert w.is_contiguous()
-    assert m_sizes.is_contiguous()
+    assert m_offsets.is_contiguous()
     assert x.ndim == 2
     assert w.ndim == 3
-    assert m_sizes.ndim == 1
+    assert m_offsets.ndim == 1
     M, _ = x.shape
     E, N, K = w.shape
     stride_we, stride_wn, stride_wk = w.stride()
@@ -160,7 +163,7 @@ def grouped_gemm_forward(
         N, K = K, N
         stride_wn, stride_wk = stride_wk, stride_wn
     assert x.shape[1] == K
-    assert m_sizes.numel() == E
+    assert m_offsets.numel() == E
 
     if dtype is None:
         dtype = x.dtype
@@ -175,7 +178,7 @@ def grouped_gemm_forward(
             # Pointers
             x,
             w,
-            m_sizes,
+            m_offsets,
             y,
             # Dimensions
             M,

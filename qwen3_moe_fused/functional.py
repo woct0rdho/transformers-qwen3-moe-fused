@@ -4,13 +4,12 @@ from torch.nn import functional as F
 from .grouped_gemm.interface import grouped_gemm
 
 
-def moe_fused_linear_naive(input: torch.Tensor, weight: torch.Tensor, m_sizes: torch.Tensor) -> torch.Tensor:
+def moe_fused_linear_naive(input: torch.Tensor, weight: torch.Tensor, m_offsets: torch.Tensor) -> torch.Tensor:
     weight = weight.permute(0, 2, 1)
-    m_offsets = torch.cumsum(m_sizes, dim=0, dtype=torch.int32)
     return F.grouped_mm(input, weight, offs=m_offsets)
 
 
-def moe_fused_linear(input: torch.Tensor, weight: torch.Tensor, m_sizes: torch.Tensor) -> torch.Tensor:
+def moe_fused_linear(input: torch.Tensor, weight: torch.Tensor, m_offsets: torch.Tensor) -> torch.Tensor:
     """
     Computes a MoE linear operation using grouped GEMM.
 
@@ -20,9 +19,10 @@ def moe_fused_linear(input: torch.Tensor, weight: torch.Tensor, m_sizes: torch.T
     Args:
         input (`torch.FloatTensor`): input tensor of shape `(batch_size, in_features)`.
         weight (`torch.FloatTensor`): weight tensor of shape `(num_experts, out_features, in_features)`.
-        m_sizes (`torch.LongTensor`): counts of selected experts in shape `(num_experts)`. Should sum to `batch_size`.
+        m_offsets (`torch.IntTensor`): offsets of experts in shape `(num_experts,)`. `m_offsets[i]` marks the end of
+            expert `i`.
 
     Returns:
         output (`torch.FloatTensor`): output tensor of shape `(batch_size, out_features)`.
     """
-    return grouped_gemm(input, weight, m_sizes)
+    return grouped_gemm(input, weight, m_offsets)

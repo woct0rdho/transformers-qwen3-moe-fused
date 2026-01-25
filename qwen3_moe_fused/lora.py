@@ -106,23 +106,23 @@ class LoraMoeFusedLinear(nn.Module, LoraLayer):
     def unmerge(self) -> None:
         raise NotImplementedError
 
-    def forward(self, x: torch.Tensor, m_sizes: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, m_offsets: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         self._check_forward_args(x, *args, **kwargs)
         adapter_names = kwargs.pop("adapter_names", None)
 
         if self.disable_adapters:
             if self.merged:
                 self.unmerge()
-            result = self.base_layer(x, m_sizes, *args, **kwargs)
+            result = self.base_layer(x, m_offsets, *args, **kwargs)
         elif adapter_names is not None:
             raise NotImplementedError
             # result = self._mixed_batch_forward(x, *args, adapter_names=adapter_names, **kwargs)
             # In _mixed_batch_forward, we need to change `lora_B(lora_A(dropout(x)))`
-            # to `lora_B(lora_A(dropout(x), m_sizes), m_sizes)`
+            # to `lora_B(lora_A(dropout(x), m_offsets), m_offsets)`
         elif self.merged:
-            result = self.base_layer(x, m_sizes, *args, **kwargs)
+            result = self.base_layer(x, m_offsets, *args, **kwargs)
         else:
-            result = self.base_layer(x, m_sizes, *args, **kwargs)
+            result = self.base_layer(x, m_offsets, *args, **kwargs)
             torch_result_dtype = result.dtype
 
             lora_A_keys = self.lora_A.keys()
@@ -135,7 +135,7 @@ class LoraMoeFusedLinear(nn.Module, LoraLayer):
                 dropout = self.lora_dropout[active_adapter]
                 scaling = self.scaling[active_adapter]
                 x = self._cast_input_dtype(x, lora_A.weight.dtype)
-                result = result + lora_B(lora_A(dropout(x), m_sizes), m_sizes) * scaling
+                result = result + lora_B(lora_A(dropout(x), m_offsets), m_offsets) * scaling
 
             result = result.to(torch_result_dtype)
 

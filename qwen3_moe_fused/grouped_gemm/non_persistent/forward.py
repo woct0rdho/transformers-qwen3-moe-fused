@@ -45,8 +45,11 @@ def _grouped_gemm_forward_kernel(
     tile_idx = tl.program_id(0)
     expert_idx = tl.program_id(1)
 
-    m_start = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
-    m_end = tl.load(m_offsets_ptr + expert_idx + 1).to(tl.int32)
+    m_end = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
+    if expert_idx == 0:
+        m_start = 0
+    else:
+        m_start = tl.load(m_offsets_ptr + expert_idx - 1).to(tl.int32)
     m_size = m_end - m_start
 
     num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
@@ -87,34 +90,34 @@ def _grouped_gemm_forward_kernel(
 
 
 def grouped_gemm_forward(
-    x: torch.Tensor, w: torch.Tensor, m_sizes: torch.Tensor, dtype: Optional[torch.dtype] = None
+    x: torch.Tensor, w: torch.Tensor, m_offsets: torch.Tensor, dtype: Optional[torch.dtype] = None
 ) -> torch.Tensor:
     assert x.is_cuda
     assert w.device == x.device
-    assert m_sizes.device == x.device
-    assert is_int_tensor(m_sizes)
+    assert m_offsets.device == x.device
+    assert is_int_tensor(m_offsets)
     assert x.is_contiguous()
     assert w.is_contiguous()
-    assert m_sizes.is_contiguous()
+    assert m_offsets.is_contiguous()
     assert x.ndim == 2
     assert w.ndim == 3
-    assert m_sizes.ndim == 1
+    assert m_offsets.ndim == 1
     M, _ = x.shape
     E, N, K = w.shape
     assert x.shape[1] == K
-    assert m_sizes.numel() == E
+    assert m_offsets.numel() == E
 
     if dtype is None:
         dtype = x.dtype
     y = torch.empty((M, N), device=x.device, dtype=dtype)
 
-    m_offsets = torch.zeros(E + 1, device=m_sizes.device, dtype=m_sizes.dtype)
-    m_offsets[1:] = torch.cumsum(m_sizes, dim=0)
-
     # Compute grid dimensions
     # We need the maximum m_size to size the grid efficiently.
-    # Note: .item() causes a host-device sync, but is necessary to set grid size dynamically
-    # based on data distribution unless using advanced graph capture features.
+    # Note: .item() causes a host-device sync
+    # We can compute m_sizes from m_offsets for this
+    m_sizes = torch.empty_like(m_offsets)
+    m_sizes[0] = m_offsets[0]
+    m_sizes[1:] = m_offsets[1:] - m_offsets[:-1]
     max_m = m_sizes.max().item()
 
     def grid(META):

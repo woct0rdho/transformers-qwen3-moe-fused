@@ -14,15 +14,15 @@ from bitsandbytes.functional import dequantize_nf4, quantize_nf4
 
 from qwen3_moe_fused.grouped_gemm.forward import grouped_gemm_forward
 from qwen3_moe_fused.grouped_gemm.quantized.forward import grouped_gemm_forward_4bit
-from qwen3_moe_fused.kernels.indexing import get_expert_counts
+from qwen3_moe_fused.kernels.indexing import get_expert_offsets
 
 
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 
-def dequant_grouped_gemm_forward(input, weight_quant, weight_quant_state, m_sizes):
+def dequant_grouped_gemm_forward(input, weight_quant, weight_quant_state, m_offsets):
     weight = dequantize_nf4(weight_quant, weight_quant_state)
-    return grouped_gemm_forward(input, weight, m_sizes)
+    return grouped_gemm_forward(input, weight, m_offsets)
 
 
 providers = {
@@ -64,11 +64,11 @@ def benchmark(M, provider):
     selected_experts = torch.randint(0, num_experts, (M,), device=device, dtype=torch.int32)
     # Assume selected_experts is sorted
     selected_experts, _ = torch.sort(selected_experts)
-    m_sizes = get_expert_counts(selected_experts, num_experts)
+    m_offsets = get_expert_offsets(selected_experts, num_experts)
 
     quantiles = [0.5, 0.2, 0.8]
     ms, min_ms, max_ms = triton.testing.do_bench(
-        lambda: providers[provider](input, weight_quant, weight_quant_state, m_sizes), quantiles=quantiles
+        lambda: providers[provider](input, weight_quant, weight_quant_state, m_offsets), quantiles=quantiles
     )
 
     perf = lambda ms: 2 * M * out_features * in_features / ms * 1e-6

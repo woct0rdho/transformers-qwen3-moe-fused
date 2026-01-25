@@ -11,23 +11,26 @@ compute_expt_data_torch = triton_kernels.routing.compute_expt_data_torch
 
 
 def grouped_gemm_forward(
-    x: torch.Tensor, w: torch.Tensor, m_sizes: torch.Tensor, dtype: Optional[torch.dtype] = None
+    x: torch.Tensor, w: torch.Tensor, m_offsets: torch.Tensor, dtype: Optional[torch.dtype] = None
 ) -> torch.Tensor:
     assert x.ndim == 2
     assert w.ndim == 3
-    assert m_sizes.ndim == 1
+    assert m_offsets.ndim == 1
     M, _ = x.shape
     E, N, K = w.shape
     assert x.shape[1] == K
-    assert m_sizes.numel() == E
+    assert m_offsets.numel() == E
 
     # x: (M, K)
     # w: (E, N, K) -> We need (E, K, N) for matmul_ogs where K matches x.shape[-1]
     # Transpose w to (E, K, N)
     w_transposed = w.transpose(1, 2)
 
-    # Ensure m_sizes is int32 for compute_expt_data_torch
-    m_sizes = m_sizes.to(torch.int32)
+    # Ensure m_offsets is int32
+    m_offsets = m_offsets.to(torch.int32)
+    m_sizes = torch.empty_like(m_offsets)
+    m_sizes[0] = m_offsets[0]
+    m_sizes[1:] = m_offsets[1:] - m_offsets[:-1]
 
     n_gates = M
 
