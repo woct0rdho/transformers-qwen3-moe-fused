@@ -45,11 +45,8 @@ def _grouped_gemm_forward_kernel(
     tile_idx = tl.program_id(0)
     expert_idx = tl.program_id(1)
 
+    m_start = tl.load(m_offsets_ptr + expert_idx - 1, mask=expert_idx > 0, other=0).to(tl.int32)
     m_end = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
-    if expert_idx == 0:
-        m_start = 0
-    else:
-        m_start = tl.load(m_offsets_ptr + expert_idx - 1).to(tl.int32)
     m_size = m_end - m_start
 
     num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)

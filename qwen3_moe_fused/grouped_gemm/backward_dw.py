@@ -81,11 +81,8 @@ def _grouped_gemm_backward_dw_kernel(
             tile_n_idx = tile_idx // num_k_tiles
             tile_k_idx = tile_idx % num_k_tiles
 
+        m_start = tl.load(m_offsets_ptr + expert_idx - 1, mask=expert_idx > 0, other=0).to(tl.int32)
         m_end = tl.load(m_offsets_ptr + expert_idx).to(tl.int32)
-        if expert_idx == 0:
-            m_start = 0
-        else:
-            m_start = tl.load(m_offsets_ptr + expert_idx - 1).to(tl.int32)
         m_size = m_end - m_start
 
         if m_size > 0:
