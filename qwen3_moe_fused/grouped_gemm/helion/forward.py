@@ -70,12 +70,10 @@ def _grouped_gemm_forward_kernel(
     E, N, K = w.shape
 
     y = torch.empty((M, N), device=x.device, dtype=dtype)
+    m_end = 0
     for expert_idx in hl.grid(E):
+        m_start = m_end
         m_end = m_offsets[expert_idx]
-        if expert_idx == 0:
-            m_start = 0
-        else:
-            m_start = m_offsets[expert_idx - 1]
         m_size = m_end - m_start
         if m_size > 0:
             for tile_m, tile_n in hl.tile([m_size, N]):
