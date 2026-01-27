@@ -2,6 +2,7 @@
 
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -42,7 +43,7 @@ def load_ck_extension(name: str, extra_cuda_cflags: Optional[list[str]] = None):
     os.makedirs(build_dir, exist_ok=True)
 
     source_file = os.path.join(cur_dir, "ck_grouped_gemm.cu")
-    ninja_log = os.path.join(build_dir, ".ninja.log")
+    ninja_log = os.path.join(build_dir, ".ninja_log")
     should_rebuild = False
 
     if os.path.exists(source_file) and os.path.exists(ninja_log):
@@ -81,7 +82,7 @@ def load_ck_extension(name: str, extra_cuda_cflags: Optional[list[str]] = None):
     for lib_dir in dict.fromkeys(get_rocm_lib_dirs()):
         ldflags.extend([f"-L{lib_dir}", f"-Wl,-rpath,{lib_dir}"])
 
-    return load(
+    module = load(
         name=name,
         sources=source_files,
         extra_cflags=cflags,
@@ -92,6 +93,8 @@ def load_ck_extension(name: str, extra_cuda_cflags: Optional[list[str]] = None):
         verbose=False,
         with_cuda=True,
     )
+    Path(ninja_log).touch(exist_ok=True)
+    return module
 
 
 CK_CONFIGS = {
