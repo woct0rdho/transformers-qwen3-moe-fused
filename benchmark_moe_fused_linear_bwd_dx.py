@@ -57,7 +57,10 @@ def benchmark(M, provider):
 
     quantiles = [0.5, 0.2, 0.8]
     ms, min_ms, max_ms = triton.testing.do_bench(
-        lambda: providers[provider](grad_output, weight, m_offsets, transpose_w=True), quantiles=quantiles
+        lambda: providers[provider](grad_output, weight, m_offsets, transpose_w=True),
+        warmup=100,
+        rep=1000,
+        quantiles=quantiles,
     )
 
     perf = lambda ms: 2 * M * out_features * in_features / ms * 1e-6

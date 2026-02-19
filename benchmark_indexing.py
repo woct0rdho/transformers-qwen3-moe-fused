@@ -50,7 +50,9 @@ def benchmark(N, provider):
     s = torch.randint(0, E, (N,), device=device, dtype=dtype)
 
     quantiles = [0.5, 0.2, 0.8]
-    ms, min_ms, max_ms = triton.testing.do_bench(lambda: providers[provider](s, E), quantiles=quantiles)
+    ms, min_ms, max_ms = triton.testing.do_bench(
+        lambda: providers[provider](s, E), warmup=100, rep=1000, quantiles=quantiles
+    )
 
     gbps = lambda ms: 3 * N * 4 / ms * 1e-6
     print("N", N, "E", E, "provider", provider, "end", gbps(ms))
