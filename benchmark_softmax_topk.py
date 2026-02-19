@@ -51,7 +51,9 @@ def benchmark(M, provider):
     logits = torch.randn(M, N, device=device, dtype=dtype)
 
     quantiles = [0.5, 0.2, 0.8]
-    ms, min_ms, max_ms = triton.testing.do_bench(lambda: providers[provider](logits, k, norm), quantiles=quantiles)
+    ms, min_ms, max_ms = triton.testing.do_bench(
+        lambda: providers[provider](logits, k, norm), warmup=100, rep=1000, quantiles=quantiles
+    )
 
     input_bytes = M * N * logits.element_size()
     output_bytes = (M * k * logits.element_size()) + (M * k * 4)  # indices is int32 (4 bytes)

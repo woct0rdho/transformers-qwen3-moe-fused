@@ -52,7 +52,10 @@ def benchmark(M, provider):
 
     quantiles = [0.5, 0.2, 0.8]
     ms, min_ms, max_ms = triton.testing.do_bench(
-        lambda: grouped_gemm_forward(input, weight, m_offsets, ext_module=module), quantiles=quantiles
+        lambda: grouped_gemm_forward(input, weight, m_offsets, ext_module=module),
+        warmup=100,
+        rep=1000,
+        quantiles=quantiles,
     )
 
     perf = lambda ms: 2 * M * out_features * in_features / ms * 1e-6
