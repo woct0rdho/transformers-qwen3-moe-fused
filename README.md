@@ -20,6 +20,21 @@ I aim to keep the code readable and easy to follow. I only used the most mature 
 
 This repo also includes Triton kernels for fused softmax-topk, and expert counting and indexing.
 
+### Autotune warm-up
+
+Triton benches every autotune config (~400 per grouped-GEMM shape key) the first time a key is hit. If that first hit happens inside a training step, VRAM is already full of activations and each bench launch can run 10-100x slower than normal (measured on an RTX 5090 at 2.6 GiB free: ~1 s average and up to ~56 s for a single config), so first-step tuning can silently take tens of minutes at near-idle power and is easily mistaken for a hang. Killing the run discards the results, so the next run pays the full cost again.
+
+To avoid this, call the warm-up once after loading the model, before the first forward pass:
+
+```python
+from qwen3_moe_fused.grouped_gemm.warmup import warmup_autotune_from_config
+
+model = ...  # weights on GPU, no activations yet
+warmup_autotune_from_config(model.config, m_tokens=batch_tokens * top_k)
+```
+
+Benching then runs at full speed and the results persist in Triton's autotune disk cache, so all later runs (including new processes) skip it entirely. Alternatively, set the env var `AUTOTUNE_DISABLE=1` to skip benching and use a single deterministic config, at some throughput cost.
+
 ### LoRA
 
 The LoRA for the fused linear layer is defined by first creating a LoRA for the linear layer in each expert, then stack them along the experts dimension. For the weight tensor with shape `(num_experts, out_features, in_features)`, the two LoRA weights have shape `lora_A: (num_experts, lora_rank, in_features), lora_B: (num_experts, out_features, lora_rank)`. Therefore, we can losslessly convert between the fused and the unfused formats, and a previously trained LoRA can continue to be trained.
