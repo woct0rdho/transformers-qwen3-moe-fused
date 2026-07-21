@@ -1,6 +1,6 @@
 # Qwen3 MoE Fused
 
-**Update:** Transformers 5 is released and it supports fused MoE kernels. Things in this repo are being upstreamed to packages such as Transformers, PEFT, Unsloth. This repo mainly supports Transformers 4.
+**Update:** Transformers 5 is released and it supports fused MoE kernels. Things in this repo are being upstreamed to packages such as Transformers, PEFT, Unsloth. This repo mainly supports Transformers 4. See https://github.com/woct0rdho/transformers5-qwen3.5-recipe for an example in Transformers 5.
 
 The Qwen3 MoE model (and all other MoE models) in HF Transformers is notoriously slow, because it uses a [for loop](https://github.com/huggingface/transformers/blob/bdf5fb70aa11782cce22027d76879f71f4e41c1e/src/transformers/models/qwen3_moe/modular_qwen3_moe.py#L103) to access the experts. The purpose of this repo is to fine-tune Qwen3-30B-A3B on a single GPU with 24 or even 16 GB VRAM and achieve high throughput. The implementation is compatible with the HF Transformers ecosystem, such as LoRA, bitsandbytes (bnb) 4-bit quantization, GGUF, and Unsloth. See [`example_train_30b_a3b_unsloth.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/example_train_30b_a3b_unsloth.py) for the usage.
 
@@ -18,7 +18,7 @@ The implementation in this repo is largely based on the [Triton grouped GEMM](ht
 
 I aim to keep the code readable and easy to follow. I only used the most mature features of Triton, such as load and store, rather than things like TMA and swizzle. Currently it's mainly optimized for RTX 3090 and RTX 4090. Help wanted to optimize it for RTX 5090. Currently the Triton compiler is not well-optimized for Strix Halo, and a CK kernel can be much faster.
 
-This repo also includes Triton kernels for fused softmax-topk, and expert counting and indexing.
+This repo also includes Triton kernels for fused softmax-topk, and expert counting and indexing. (Update: They're far from optimal, see the new kernels in https://github.com/woct0rdho/transformers5-qwen3.5-recipe/blob/master/fast_moe_routing.py )
 
 ### LoRA
 
@@ -36,10 +36,7 @@ If we directly load a GGUF in Transformers, all the parameters will be immediate
 
 ### TODO
 
-* This should work with Qwen3-Next and GLM-4.7-Flash with minimal modification. I guess it can be done quickly with AI. Feel free to ask if you need it.
 * Multi-GPU support. I don't have multiple GPUs at home so I'm not focusing on this. It's straightforward to do DDP using HF Accelerate, see https://github.com/woct0rdho/transformers-qwen3-moe-fused/issues/1#issuecomment-3243600437 . FSDP may also work, but expert parallel is out of the scope of this repo. If you use Unsloth, you can follow https://docs.unsloth.ai/basics/multi-gpu-training-with-unsloth . Feel free to ask if you see any error.
-* Fuse 4-bit dequant and MoE linear, see [`qwen3_moe_fused/quantize/layer.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/qwen3_moe_fused/quantize/layer.py). Currently I've written a kernel in [`qwen3_moe_fused/grouped_gemm/quantized/forward.py`](https://github.com/woct0rdho/transformers-qwen3-moe-fused/blob/master/qwen3_moe_fused/grouped_gemm/quantized/forward.py) but it's slower than the unfused version when the batch size is large.
-* Fuse GGUF dequant and linear layers.
 
 ### License
 
