@@ -14,7 +14,10 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeModel,
     Qwen3MoeSparseMoeBlock,
 )
-from transformers.utils.generic import OutputRecorder
+try:
+    from transformers.utils.generic import OutputRecorder
+except ImportError:  # transformers >= 5.12 moved it
+    from transformers.utils.output_capturing import OutputRecorder
 
 from .functional import moe_fused_linear
 from .kernels.indexing import get_expert_offsets_and_idx
