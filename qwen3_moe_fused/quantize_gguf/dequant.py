@@ -6,7 +6,7 @@ from functools import partial
 import gguf
 import numpy as np
 import torch
-from gguf.quants import IQ1_M, IQ1_S, IQ2_S, IQ2_XXS, IQ3_S, IQ3_XXS
+from gguf.quants import IQ1_M, IQ1_S, IQ2_S, IQ2_XS, IQ2_XXS, IQ3_S, IQ3_XXS
 
 
 torch._dynamo.config.recompile_limit = max(torch._dynamo.config.recompile_limit, 64)
@@ -295,6 +295,9 @@ IQ2_XXS.init_grid()
 GRID_IQ2_XXS = torch.from_numpy(IQ2_XXS.grid).squeeze()
 KSIGNS_IQ2_XXS = torch.from_numpy(np.frombuffer(IQ2_XXS.ksigns, dtype=np.uint8).copy())
 
+IQ2_XS.init_grid()
+GRID_IQ2_XS = torch.from_numpy(IQ2_XS.grid).squeeze()
+
 IQ1_M.init_grid()  # Uses same grid as IQ1_S internally
 
 IQ1_S.init_grid()
@@ -487,6 +490,40 @@ def dequantize_blocks_IQ2_XXS(blocks, block_size, type_size, dtype=None):
     return res.view(n_blocks, 256)
 
 
+# Block layout (256 elements, 74 bytes): d fp16 | 32 x uint16 qs (low 9 bits: grid index,
+# high 7 bits: ksigns index, shared with IQ2_XXS) | 8 bytes of 4-bit scales (one per 2 qs)
+def dequantize_blocks_IQ2_XS(blocks, block_size, type_size, dtype=None):
+    n_blocks = blocks.shape[0]
+
+    d, qs, scales = split_block_dims(blocks, 2, 2 * 256 // 8)
+    d = d.view(torch.float16).to(dtype)
+
+    qs = qs.contiguous().view(n_blocks, 32, 2).to(torch.int32)
+    qs = qs[:, :, 0] | (qs[:, :, 1] << 8)
+
+    # db
+    shifts_sc = torch.tensor([0, 4], device=d.device, dtype=torch.uint8).view(1, 1, 2)
+    sc = (scales.unsqueeze(-1) >> shifts_sc) & 0x0F
+    db = d.view(n_blocks, 1) * (0.5 + sc.view(n_blocks, 16).to(dtype)) * 0.25
+    db = db.view(n_blocks, 16, 1, 1)
+
+    # signs
+    sign_bytes = KSIGNS_IQ2_XXS.to(d.device)[(qs >> 9).to(torch.long)]
+    shifts_bits = torch.arange(8, device=d.device, dtype=torch.uint8).view(1, 1, 8)
+    signs = (sign_bytes.unsqueeze(-1) >> shifts_bits) & 1
+    signs = torch.where(
+        signs == 0, torch.tensor(1.0, dtype=dtype, device=d.device), torch.tensor(-1.0, dtype=dtype, device=d.device)
+    )
+    signs = signs.view(n_blocks, 16, 2, 8)
+
+    # grid
+    grid_val = GRID_IQ2_XS.to(dtype=dtype, device=d.device)[(qs & 511).to(torch.long)]
+    grid_val = grid_val.view(n_blocks, 16, 2, 8)
+
+    res = db * grid_val * signs
+    return res.view(n_blocks, 256)
+
+
 def dequantize_blocks_IQ1_M(blocks, block_size, type_size, dtype=None):
     n_blocks = blocks.shape[0]
 
@@ -599,6 +636,7 @@ dequantize_functions = {
     gguf.GGMLQuantizationType.IQ3_S: dequantize_blocks_IQ3_S,
     gguf.GGMLQuantizationType.IQ3_XXS: dequantize_blocks_IQ3_XXS,
     gguf.GGMLQuantizationType.IQ2_S: dequantize_blocks_IQ2_S,
+    gguf.GGMLQuantizationType.IQ2_XS: dequantize_blocks_IQ2_XS,
     gguf.GGMLQuantizationType.IQ2_XXS: dequantize_blocks_IQ2_XXS,
     gguf.GGMLQuantizationType.IQ1_M: dequantize_blocks_IQ1_M,
     gguf.GGMLQuantizationType.IQ1_S: dequantize_blocks_IQ1_S,
